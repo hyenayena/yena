@@ -1,0 +1,30 @@
+{
+  "name": "yena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "yena": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit && tsc -p tests",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "typecheck:modules": "sh scripts/each-module.sh typecheck",
+    "test:modules": "sh scripts/each-module.sh test",
+    "logs": "tail -n 200 logs/yena.log",
+    "check": "npm run typecheck && npm test && npm run typecheck:modules && npm run test:modules"
+  },
+  "dependencies": {
+    "ink": "^8.0.0",
+    "react": "^19.3.1",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2"
+  }
+}

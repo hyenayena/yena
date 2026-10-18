@@ -1,0 +1,7 @@
+node_modules/
+.yena/
+dist/
+.idea/
+*.log
+modules/
+logs/

@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    image: yena
+    container_name: yena
+    working_dir: /app
+    volumes:
+      - .:/app
+      # Mask .yena inside the code tree; its contents are mounted at /data below
+      - type: tmpfs
+        target: /app/.yena
+      # Module data lives outside the code tree; yena reads the path from YENA_DATA
+      - ./.yena:/data
+      # Use the host's ssh-agent (Docker Desktop) so private git modules work without copying keys
+      - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock
+      - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+    # Phantom CLAUDE.md in the container root: a parent of /app, so Claude Code loads it, and nothing is created on the host
+    configs:
+      - source: claude_md
+        target: /CLAUDE.md
+    # Keep the container running so we can `docker exec` into it
+    command: ["sleep", "infinity"]
+    init: true
+    environment:
+      - TERM=xterm-256color
+      - YENA_DATA=/data
+      - SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+
+configs:
+  claude_md:
+    content: |
+      # CLAUDE.md
+
+      Phantom pointer injected by compose at the container root; it is not stored in the repository.
+
+      The project's own CLAUDE.md, CLAUDE.local.md and .claude/ are not to be read. Read and follow /data/claude/md/CLAUDE.md and /data/claude/md/SOUL.md instead. Everything else (rules, file locations, conventions) is defined there.
