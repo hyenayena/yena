@@ -50,6 +50,8 @@ export type CommandContext = {
 	// rejects if that area already shows a view, `build` throws, or the element throws while rendering.
 	mount?: (build: (control: MountControl) => UiElement, options?: MountOptions) => Promise<void>;
 	suspend?: <T>(fn: () => T | Promise<T>) => Promise<T>;
+	// Puts text on the terminal's clipboard (OSC 52). False when it is too long or not possible.
+	copyToClipboard?: (text: string) => boolean;
 };
 
 export type SettingOption = {
