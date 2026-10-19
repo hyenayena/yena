@@ -14,8 +14,16 @@ export type ViewHost = {
 	subscribe(listener: () => void): () => void;
 	// Asks the host to move input to the neighbouring area. False when there is none.
 	move(direction: FocusDirection): boolean;
-	// Input the host consumes itself (e.g. the console toggle); a view must ignore it.
-	isHostKey(input: string): boolean;
+	// Opens or closes the host's side panel (the console). False when there is none.
+	togglePanel?(): boolean;
+	// Exits the whole application (e.g. on the vim-style ":q").
+	quit?(): void;
+	// Shows a bar above the view: the title (e.g. the chat's name) on the left and an optional
+	// detail (e.g. model and mode) on the right. An undefined title removes the bar.
+	setTitle?(title: string | undefined, detail?: string): void;
+	// Input the host consumes itself (e.g. the console toggle, Ctrl+T); a view must ignore it.
+	// Pass the key flags: host keys are usually modified keys rather than characters.
+	isHostKey(input: string, key?: {escape?: boolean; ctrl?: boolean}): boolean;
 };
 
 export type MountControl = {
