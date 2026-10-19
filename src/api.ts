@@ -8,6 +8,8 @@ export type FocusDirection = 'left' | 'right';
 export type ViewHost = {
 	isFocused(): boolean;
 	columns(): number;
+	// Rows the view may use; absent on older hosts.
+	rows?(): number;
 	// Called after focus or width changes; returns an unsubscribe function.
 	subscribe(listener: () => void): () => void;
 	// Asks the host to move input to the neighbouring area. False when there is none.
