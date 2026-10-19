@@ -25,7 +25,7 @@ build: ## Build the image
 	docker compose build
 
 rebuild: ## Rebuild the image and start the container
-	docker compose up -d --build
+	docker compose up -d --force-recreate
 
 ps: ## Container status
 	docker compose ps
