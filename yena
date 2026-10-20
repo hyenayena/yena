@@ -1,0 +1,119 @@
+#!/bin/sh
+set -eu
+
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+cd -- "$dir"
+
+usage() {
+	on=''
+	off=''
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+		on=$(printf '\033[36m')
+		off=$(printf '\033[0m')
+	fi
+	printf 'Usage: ./yena [command] [args]  (no command runs yena)\n\n'
+	while IFS='|' read -r name desc; do
+		printf '  %s%-17s%s %s\n' "$on" "$name" "$off" "$desc"
+	done <<'TABLE'
+help|Show the list of commands
+up|Start the container in the background
+down|Stop and remove the container
+restart|Restart the container
+build|Build the image
+rebuild|Recreate the container (no image build; run build first)
+ps|Container status
+logs|Container logs
+yena|Run the app (dev, via tsx; the default)
+start|Run the compiled app from dist/
+sh|Open a shell in the container
+install|Install dependencies (npm install)
+typecheck|Check types
+test|Run the tests
+typecheck-modules|Check types of every module
+test-modules|Run the tests of every module
+check|Run type checks and tests (host and modules)
+compile|Compile TypeScript into dist/
+claude|Run Claude Code in the container (arguments are passed through)
+TABLE
+}
+
+ensure_up() {
+	docker ps -q --filter 'name=^yena$' | grep -q . || docker compose up -d
+}
+
+run_exec() {
+	tty=''
+	[ -t 0 ] && tty=-t
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena "$@"
+}
+
+exec_in() {
+	tty=''
+	[ -t 0 ] && tty=-t
+	exec docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena "$@"
+}
+
+cmd=${1:-yena}
+if [ $# -gt 0 ]; then
+	shift
+fi
+
+case $cmd in
+	help | -h | --help | up | down | restart | build | rebuild | ps | logs | \
+	yena | start | sh | install | typecheck | test | typecheck-modules | \
+	test-modules | check | compile | claude) ;;
+	*)
+		printf 'Unknown command: %s\n' "$cmd" >&2
+		printf '%s\n' 'Run ./yena help for the list of commands.' >&2
+		exit 2
+		;;
+esac
+
+if [ "$cmd" != claude ] && [ $# -gt 0 ]; then
+	printf '%s takes no arguments\n' "$cmd" >&2
+	exit 2
+fi
+
+case $cmd in
+	help | -h | --help)
+		usage
+		exit 0
+		;;
+	claude)
+		if [ ! -x modules/claude/bin/claude ]; then
+			printf '%s\n' 'The claude module is not installed: mod install git@github.com:hyenayena/claude.git' >&2
+			exit 1
+		fi
+		;;
+esac
+
+if ! command -v docker >/dev/null 2>&1; then
+	printf '%s\n' 'docker not found. Run ./yena on the host; inside the container use npm run <script>.' >&2
+	exit 1
+fi
+
+case $cmd in
+	up) exec docker compose up -d ;;
+	down) exec docker compose down ;;
+	restart) exec docker compose restart ;;
+	build) exec docker compose build ;;
+	rebuild) exec docker compose up -d --force-recreate ;;
+	ps) exec docker compose ps ;;
+	logs) exec docker compose logs -f ;;
+	yena) ensure_up; exec_in npm run dev ;;
+	start) ensure_up; exec_in npm start ;;
+	sh) ensure_up; exec_in sh ;;
+	install) ensure_up; exec_in npm install ;;
+	typecheck) ensure_up; exec_in npm run typecheck ;;
+	test) ensure_up; exec_in npm test ;;
+	typecheck-modules) ensure_up; exec_in npm run typecheck:modules ;;
+	test-modules) ensure_up; exec_in npm run test:modules ;;
+	compile) ensure_up; exec_in npm run build ;;
+	check)
+		ensure_up
+		for script in typecheck test typecheck:modules test:modules; do
+			run_exec npm run "$script" || exit $?
+		done
+		;;
+	claude) ensure_up; exec_in modules/claude/bin/claude "$@" ;;
+esac
