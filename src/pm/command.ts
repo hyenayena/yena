@@ -7,29 +7,34 @@ const subcommands: Subcommand[] = [
 		aliases: ['i'],
 		usage: 'mod install [source]…',
 		description: 'Install modules (no arguments: restore all from yena-modules.json)',
+		agent: 'confirm',
 	},
 	{
 		name: 'update',
 		aliases: ['up'],
 		usage: 'mod update [name]…',
 		description: 'Update modules to the latest version',
+		agent: 'confirm',
 	},
 	{
 		name: 'remove',
 		aliases: ['rm'],
 		usage: 'mod remove <name>…',
 		description: 'Remove modules',
+		agent: 'confirm',
 	},
 	{
 		name: 'list',
 		aliases: ['ls'],
 		usage: 'mod list',
 		description: 'Show installed modules',
+		agent: 'safe',
 	},
 	{
 		name: 'help',
 		usage: 'mod help [subcommand]',
 		description: 'Show this help or help for one subcommand',
+		agent: 'safe',
 	},
 ];
 
@@ -45,6 +50,7 @@ export const modCommand: Command = {
 	description: 'Module manager (mod help)',
 	usage: 'mod <install|update|remove|list|help> [args]',
 	subcommands,
+	agent: 'confirm',
 	run: async ([sub, ...args], ctx) => {
 		const log = ctx.print;
 		switch (sub) {

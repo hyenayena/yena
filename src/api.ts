@@ -39,6 +39,39 @@ export type MountTarget = 'main' | 'panel';
 
 export type MountOptions = {
 	target?: MountTarget;
+	// Panel only; no focus change; opens the console; closed by its owner; agent runs always use it.
+	activity?: boolean;
+};
+
+// How an AI assistant may run a command: freely, after the user confirms, or never. Undeclared = 'confirm'.
+export type AgentPolicy = 'safe' | 'confirm' | 'deny';
+
+export type CommandInfo = {
+	name: string;
+	description: string;
+	usage?: string;
+	policy: AgentPolicy;
+	subcommands: {name: string; aliases: string[]; usage: string; description: string; policy: AgentPolicy}[];
+};
+
+export type CommandConfirmRequest = {line: string; command: string; subcommand?: string; caller: string};
+
+export type CommandRunRequest = {
+	line: string;
+	// Short module id, e.g. 'claude'.
+	caller: string;
+	confirm?: (req: CommandConfirmRequest) => Promise<boolean>;
+	signal?: AbortSignal;
+	timeoutMs?: number;
+};
+
+export type CommandRunStatus = 'ok' | 'error' | 'invalid' | 'unknown' | 'denied' | 'declined' | 'off' | 'busy' | 'timeout' | 'aborted';
+
+export type CommandRunResult = {status: CommandRunStatus; output: string; truncated: boolean; ms: number; reason?: string};
+
+export type CommandBridge = {
+	list(): CommandInfo[];
+	run(req: CommandRunRequest): Promise<CommandRunResult>;
 };
 
 export type CommandContext = {
@@ -52,6 +85,9 @@ export type CommandContext = {
 	suspend?: <T>(fn: () => T | Promise<T>) => Promise<T>;
 	// Puts text on the terminal's clipboard (OSC 52). False when it is too long or not possible.
 	copyToClipboard?: (text: string) => boolean;
+	commandBridge?: CommandBridge;
+	// Aborted on agent-run timeout or abort; commands may honour it.
+	signal?: AbortSignal;
 };
 
 export type SettingOption = {
@@ -81,6 +117,7 @@ export type Subcommand = {
 	aliases?: string[];
 	usage: string;
 	description: string;
+	agent?: AgentPolicy;
 };
 
 export type Command = {
@@ -90,6 +127,7 @@ export type Command = {
 	subcommands?: Subcommand[];
 	// Run once with no arguments when the UI starts (e.g. to open the chat).
 	autostart?: boolean;
+	agent?: AgentPolicy;
 	settings?: SettingsTab;
 	run: (args: string[], ctx: CommandContext) => void | Promise<void>;
 };
