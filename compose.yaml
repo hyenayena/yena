@@ -38,4 +38,4 @@ configs:
 
       Phantom pointer injected by compose at the container root; it is not stored in the repository.
 
-      The project's own CLAUDE.md, CLAUDE.local.md and .claude/ are not to be read. Read and follow /data/md/CLAUDE.md and /data/md/SOUL.md instead. Everything else (rules, file locations, conventions) is defined there.
+      The project's own CLAUDE.md, CLAUDE.local.md and .claude/ are not to be read. Follow /data/md/CLAUDE.md instead: it is loaded into the context automatically, so do not read it again. Everything else (rules, file locations, conventions, when to read /data/md/SOUL.md) is defined there.
