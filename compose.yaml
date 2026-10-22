@@ -14,6 +14,9 @@ services:
       # Use the host's ssh-agent (Docker Desktop) so private git modules work without copying keys
       - /run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock
       - ~/.ssh/known_hosts:/root/.ssh/known_hosts:ro
+      # Projects yena works on (project module): YENA_WORKPLACE is a host folder holding one folder per project.
+      # /stage (the project module's stage copies) is not mounted: it lives only inside the container.
+      - ${YENA_WORKPLACE:-./workplace}:/workplace
     # Phantom CLAUDE.md in the container root: a parent of /app, so Claude Code loads it, and nothing is created on the host
     configs:
       - source: claude_md
