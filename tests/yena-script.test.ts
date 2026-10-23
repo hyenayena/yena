@@ -30,6 +30,25 @@ exit 0
 
 type Call = {cwd: string; args: string[]};
 
+const STOP = ['stop', 'mark'];
+
+// Long interactive commands run in a wrapper that marks their pid, and the script stops what is still marked on exit.
+const TRACKED = new Set(['yena', 'start', 'sh', 'claude']);
+function untrack(all: string[][]): string[][] {
+	const out: string[][] = [];
+	for (const args of all) {
+		const at = args.indexOf('yena');
+		if (args[0] === 'exec' && args[at + 1] === 'sh' && args[at + 2] === '-c' && /echo \$\$ > "\$0"/.test(args[at + 3] ?? '')) {
+			assert.match(args[at + 4] ?? '', /^\/tmp\/yena-exec\/\d+\.\d+$/);
+			out.push([...args.slice(0, at + 1), ...args.slice(at + 5)]);
+		} else if (args[0] === 'exec' && args[1] === 'yena' && args[2] === 'sh' && /kill -HUP -"\$p"/.test(args[4] ?? '')) {
+			out.push(STOP);
+		} else out.push(args);
+	}
+	return out;
+}
+
+
 async function makeFixture(opts: {claude?: boolean; name?: string} = {}) {
 	const root = await realpath(await mkdtemp(path.join(tmpdir(), 'yena-script-')));
 	const dir = path.join(root, opts.name ?? 'repo');
@@ -95,7 +114,7 @@ test('no arguments with a running container: one exec of npm run dev from the sc
 	const r = run(fx, []);
 	assert.equal(r.status, 0, r.stderr);
 	const all = await calls(fx);
-	assert.deepEqual(all.map(c => c.args), [PS, [...EXEC_PREFIX, 'npm', 'run', 'dev']]);
+	assert.deepEqual(untrack(all.map(c => c.args)), [PS, [...EXEC_PREFIX, 'npm', 'run', 'dev'], STOP]);
 	for (const c of all) assert.equal(c.cwd, fx.dir);
 	assert.ok(!all.some(c => c.args.includes('-t')));
 });
@@ -104,7 +123,7 @@ test('a stopped container is started before the exec', async () => {
 	const fx = await makeFixture();
 	const r = run(fx, [], {STUB_PS: ''});
 	assert.equal(r.status, 0, r.stderr);
-	assert.deepEqual(await argsOf(fx), [PS, UP, [...EXEC_PREFIX, 'npm', 'run', 'dev']]);
+	assert.deepEqual(untrack(await argsOf(fx)), [PS, UP, [...EXEC_PREFIX, 'npm', 'run', 'dev'], STOP]);
 });
 
 const COMPOSE: [string, string[]][] = [
@@ -145,9 +164,19 @@ for (const [cmd, expected] of EXEC) {
 		const fx = await makeFixture();
 		const r = run(fx, [cmd]);
 		assert.equal(r.status, 0, r.stderr);
-		assert.deepEqual(await argsOf(fx), [PS, [...EXEC_PREFIX, ...expected]]);
+		assert.deepEqual(untrack(await argsOf(fx)), [PS, [...EXEC_PREFIX, ...expected], ...(TRACKED.has(cmd) ? [STOP] : [])]);
 	});
 }
+
+test('a tracked command stops its marked process group with the same mark it started with', async () => {
+	const fx = await makeFixture();
+	assert.equal(run(fx, ['yena']).status, 0);
+	const all = await argsOf(fx);
+	const start = all[1]!;
+	const stop = all[2]!;
+	assert.equal(stop[5], start[start.indexOf('yena') + 4], 'the stop call names the started mark');
+	assert.deepEqual(stop.slice(0, 4), ['exec', 'yena', 'sh', '-c']);
+});
 
 test('check runs the steps in order and stops at the first failure', async () => {
 	const fx = await makeFixture();
@@ -187,7 +216,7 @@ test('claude with the module passes its arguments unchanged', async () => {
 	const fx = await makeFixture({claude: true});
 	const r = run(fx, ['claude', '--resume', 'a b']);
 	assert.equal(r.status, 0, r.stderr);
-	assert.deepEqual(await argsOf(fx), [PS, [...EXEC_PREFIX, 'modules/claude/bin/claude', '--resume', 'a b']]);
+	assert.deepEqual(untrack(await argsOf(fx)), [PS, [...EXEC_PREFIX, 'modules/claude/bin/claude', '--resume', 'a b'], STOP]);
 });
 
 test('an unknown command: exit 2, message and hint, no docker calls', async () => {
@@ -212,12 +241,42 @@ for (const flag of ['help', '-h', '--help']) {
 		const fx = await makeFixture();
 		const r = run(fx, [flag]);
 		assert.equal(r.status, 0, r.stderr);
-		const names = [...COMPOSE, ...EXEC].map(([n]) => n).concat(['check', 'claude', 'help']);
+		const names = [...COMPOSE, ...EXEC].map(([n]) => n).concat(['check', 'claude', 'help', 'kill']);
 		for (const n of names) assert.match(r.stdout, new RegExp(`(^|\\W)${n}(\\W|$)`, 'm'), n);
 		assert.ok(!r.stdout.includes(String.fromCharCode(27)));
 		assert.deepEqual(await calls(fx), []);
 	});
 }
+
+test('kill stops the app and runner processes inside a running container', async () => {
+	const fx = await makeFixture();
+	const r = run(fx, ['kill']);
+	assert.equal(r.status, 0, r.stderr);
+	const all = await argsOf(fx);
+	assert.equal(all.length, 2);
+	assert.deepEqual(all[0], PS);
+	assert.deepEqual(all[1]!.slice(0, 4), ['exec', 'yena', 'sh', '-c']);
+	const body = all[1]![4]!;
+	assert.match(body, /pkill -TERM -f -- "\$pat"/);
+	assert.match(body, /pkill -KILL -f -- "\$pat"/);
+	assert.match(body, /\[s\]rc\/cli\\\.ts\|\[r\]unner\/main\\\.ts/, 'bracketed so the pattern never matches its own shell');
+	assert.match(body, /rm -rf \/tmp\/yena-exec/);
+});
+
+test('kill with a stopped container does nothing and says so', async () => {
+	const fx = await makeFixture();
+	const r = run(fx, ['kill'], {STUB_PS: ''});
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(r.stdout, /The container is not running; nothing to stop\./);
+	assert.deepEqual(await argsOf(fx), [PS]);
+});
+
+test('kill takes no arguments', async () => {
+	const fx = await makeFixture();
+	const r = run(fx, ['kill', 'x']);
+	assert.equal(r.status, 2);
+	assert.deepEqual(await argsOf(fx), []);
+});
 
 test('docker exit status propagates from an exec', async () => {
 	const fx = await makeFixture();
@@ -293,7 +352,7 @@ test('claude with no arguments execs the binary alone', async () => {
 	const fx = await makeFixture({claude: true});
 	const r = run(fx, ['claude']);
 	assert.equal(r.status, 0, r.stderr);
-	assert.deepEqual(await argsOf(fx), [PS, [...EXEC_PREFIX, 'modules/claude/bin/claude']]);
+	assert.deepEqual(untrack(await argsOf(fx)), [PS, [...EXEC_PREFIX, 'modules/claude/bin/claude'], STOP]);
 });
 
 test('a claude binary without the execute bit counts as not installed', async () => {

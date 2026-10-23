@@ -23,6 +23,7 @@ build|Build the image
 rebuild|Recreate the container (no image build; run build first)
 ps|Container status
 logs|Container logs
+kill|Stop every yena process in the container (app and background chats)
 yena|Run the app (dev, via tsx; the default)
 start|Run the compiled app from dist/
 sh|Open a shell in the container
@@ -53,13 +54,38 @@ exec_in() {
 	exec docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena "$@"
 }
 
+# Docker does not stop a process in the container when its exec client goes away (a closed terminal
+# window), so long interactive commands leave a mark with their pid inside the container, remove it
+# when they end, and the script stops whatever is still marked when it exits or is hung up.
+TRACK_RUN='mkdir -p /tmp/yena-exec && echo $$ > "$0" && "$@"; s=$?; rm -f "$0"; exit $s'
+# The bracket keeps the pattern from matching the shell that runs it.
+KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=$(pgrep -f -- "$pat" | wc -l); if [ "$n" -gt 0 ]; then pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec; echo "Stopped $n yena process(es)."'
+
+TRACK_STOP='p=$(cat "$0" 2>/dev/null) || exit 0; rm -f "$0"; kill -HUP -"$p" 2>/dev/null || kill -HUP "$p" 2>/dev/null; exit 0'
+
+stop_tracked() {
+	docker exec yena sh -c "$TRACK_STOP" "$1" >/dev/null 2>&1 || true
+}
+
+run_tracked() {
+	tty=''
+	[ -t 0 ] && tty=-t
+	mark="/tmp/yena-exec/$$.$(date +%s)"
+	trap 'stop_tracked "$mark"' EXIT
+	trap 'exit 129' HUP
+	trap 'exit 143' TERM
+	status=0
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
+	exit "$status"
+}
+
 cmd=${1:-yena}
 if [ $# -gt 0 ]; then
 	shift
 fi
 
 case $cmd in
-	help | -h | --help | up | down | restart | build | rebuild | ps | logs | \
+	help | -h | --help | up | down | restart | build | rebuild | ps | logs | kill | \
 	yena | start | sh | install | typecheck | test | typecheck-modules | \
 	test-modules | check | compile | claude) ;;
 	*)
@@ -98,11 +124,18 @@ case $cmd in
 	restart) exec docker compose restart ;;
 	build) exec docker compose build ;;
 	rebuild) exec docker compose up -d --force-recreate ;;
+	kill)
+		if ! docker ps -q --filter 'name=^yena$' | grep -q .; then
+			printf '%s\n' 'The container is not running; nothing to stop.'
+			exit 0
+		fi
+		exec docker exec yena sh -c "$KILL_ALL"
+		;;
 	ps) exec docker compose ps ;;
 	logs) exec docker compose logs -f ;;
-	yena) ensure_up; exec_in npm run dev ;;
-	start) ensure_up; exec_in npm start ;;
-	sh) ensure_up; exec_in sh ;;
+	yena) ensure_up; run_tracked npm run dev ;;
+	start) ensure_up; run_tracked npm start ;;
+	sh) ensure_up; run_tracked sh ;;
 	install) ensure_up; exec_in npm install ;;
 	typecheck) ensure_up; exec_in npm run typecheck ;;
 	test) ensure_up; exec_in npm test ;;
@@ -115,5 +148,5 @@ case $cmd in
 			run_exec npm run "$script" || exit $?
 		done
 		;;
-	claude) ensure_up; exec_in modules/claude/bin/claude "$@" ;;
+	claude) ensure_up; run_tracked modules/claude/bin/claude "$@" ;;
 esac
