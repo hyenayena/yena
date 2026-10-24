@@ -341,8 +341,9 @@ exec_hinted() {
 # window), so long interactive commands leave a mark with their pid inside the container, remove it
 # when they end, and the script stops whatever is still marked when it exits or is hung up.
 TRACK_RUN='mkdir -p /tmp/yena-exec && echo $$ > "$0" && "$@"; s=$?; rm -f "$0"; exit $s'
-# The bracket keeps the pattern from matching the shell that runs it.
-KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=$(pgrep -f -- "$pat" | wc -l); if [ "$n" -gt 0 ]; then pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec; echo "Stopped $n yena process(es)."'
+# The bracket keeps the pattern from matching the shell that runs it. The count skips the node child that
+# tsx starts under its wrapper (its command line loads tsx/dist/preflight), so one app counts once.
+KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=$(ps -eo args= | grep -E -- "$pat" | grep -vc -- "tsx/dist/preflight"); if [ "$n" -gt 0 ]; then pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec; echo "Stopped $n yena instance(s)."'
 
 TRACK_STOP='p=$(cat "$0" 2>/dev/null) || exit 0; rm -f "$0"; kill -HUP -"$p" 2>/dev/null || kill -HUP "$p" 2>/dev/null; exit 0'
 
