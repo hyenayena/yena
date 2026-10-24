@@ -4,18 +4,7 @@ set -eu
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
 cd -- "$dir"
 
-usage() {
-	on=''
-	off=''
-	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-		on=$(printf '\033[36m')
-		off=$(printf '\033[0m')
-	fi
-	printf 'Usage: ./yena [command] [args]  (no command runs yena)\n\n'
-	while IFS='|' read -r name desc; do
-		printf '  %s%-17s%s %s\n' "$on" "$name" "$off" "$desc"
-	done <<'TABLE'
-help|Show the list of commands
+TABLE='help|Show the list of commands
 up|Start the container in the background
 down|Stop and remove the container
 restart|Restart the container
@@ -28,18 +17,297 @@ yena|Run the app (dev, via tsx; the default)
 start|Run the compiled app from dist/
 sh|Open a shell in the container
 install|Install dependencies (npm install)
-typecheck|Check types
-test|Run the tests
-typecheck-modules|Check types of every module
-test-modules|Run the tests of every module
-check|Run type checks and tests (host and modules)
+typecheck|Check host types
+test|Run the host tests
 compile|Compile TypeScript into dist/
-claude|Run Claude Code in the container (arguments are passed through)
-TABLE
+completion|Print tab completion for zsh and bash (see the end of help)
+console|Run a yena console command line (for a name this script also has, e.g. console help)'
+
+# console_rows: the console commands the running app reports, as "<path><TAB><description>" lines; nothing
+# when docker is missing, the container is down, the app is too old or the call takes over 3 seconds. The
+# output is untrusted: only valid lines pass, the description printable ASCII only. No ensure_up: a Tab or
+# help must never start the container.
+catalog_raw() {
+	docker exec -e YENA_LOG=off yena node_modules/.bin/tsx src/cli.ts --catalog </dev/null 2>/dev/null &
+	cat_pid=$!
+	# The redirect keeps the watchdog from holding the pipe open after docker is done.
+	( sleep 3; kill "$cat_pid" ) >/dev/null 2>&1 &
+	cat_dog=$!
+	wait "$cat_pid" 2>/dev/null || true
+	kill "$cat_dog" 2>/dev/null || true
+}
+
+console_rows() {
+	if ! command -v docker >/dev/null 2>&1; then
+		return 0
+	fi
+	catalog_raw 2>/dev/null | awk -F'\t' '
+	function ok(s) { return length(s) >= 1 && length(s) <= 64 && s ~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/ }
+	NR > 2000 { exit }
+	NF >= 1 && NF <= 2 {
+		n = split($1, p, / /)
+		if (n > 2 || !ok(p[1]) || (n == 2 && !ok(p[2]))) next
+		d = $2
+		gsub(/[^ -~]/, "", d)
+		print $1 "\t" substr(d, 1, 80)
+	}'
+}
+
+usage() {
+	on=''
+	off=''
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+		on=$(printf '\033[36m')
+		off=$(printf '\033[0m')
+	fi
+	printf 'Usage: ./yena [command] [args]  (no command runs yena)\n\n'
+	printf '%s\n' "$TABLE" | while IFS='|' read -r name desc; do
+		printf '  %s%-17s%s %s\n' "$on" "$name" "$off" "$desc"
+	done
+	printf '\nAny other word runs a yena console command: ./yena mod list\n'
+	printf '%s\n' 'Use ./yena console <words> when the name is also a command of this script.'
+	tab=$(printf '\t')
+	rows=$(console_rows | awk -F'\t' 'index($1, " ") == 0')
+	if [ -n "$rows" ]; then
+		printf '\nConsole commands\n'
+		printf '%s\n' "$rows" | while IFS=$tab read -r name desc; do
+			printf '  %s%-17s%s ' "$on" "$name" "$off"
+			printf '%s\n' "$desc"
+		done
+	else
+		printf '\nConsole commands: listed when the container is running (./yena up).\n'
+	fi
+	printf '\nEnvironment\n'
+	while IFS='|' read -r name desc; do
+		printf '  %s%-22s%s %s\n' "$on" "$name" "$off" "$desc"
+	done <<'ENVS'
+YENA_LOG_LEVEL=<level>|Log level of the app: error, warn, info (default) or debug
+YENA_LOG=on/off|Write logs/yena.log (on, the default) or not (off)
+YENA_CLIPBOARD=off|Do not copy text selected in the app to the host clipboard
+NO_COLOR|Set to any value to turn off colours in this script
+YENA_HINTS=off|Do not print the hint: lines this script writes to stderr
+ENVS
+	printf '\nInside the container: npm run logs (last 200 log lines)\n'
+	# The completion script exports YENA_COMPLETION, so a child process can tell whether its shell loaded it.
+	if [ "${YENA_COMPLETION:-}" = on ]; then
+		printf '\nTab completion: on in this shell.\n'
+	else
+		printf '\nTab completion is off in this shell (zsh, bash). Turn it on with this line\n(lasts until the terminal closes; add it to the end of ~/.zshrc or ~/.bashrc to keep it):\n'
+		printf '  eval "$(%s completion)"\n' "'$dir/yena'"
+	fi
+}
+
+# The printed script is read by zsh or bash, not by this sh; its word lists come from TABLE.
+completion() {
+	printf '# yena tab completion for zsh and bash\n'
+	printf 'export YENA_COMPLETION=on\n'
+	printf "_yena_words='%s'\n" "$(printf '%s\n' "$TABLE" | cut -d'|' -f1 | tr '\n' ' ')"
+	printf "_yena_self='%s'\n" "$(printf '%s' "$dir/yena" | sed "s/'/'\\\\''/g")"
+	printf '_yena_described=(\n'
+	printf '%s\n' "$TABLE" | sed -e 's/|/:/' -e "s/'/'\\\\''/g" -e "s/^/  '/" -e "s/\$/'/"
+	printf ')\n'
+	cat <<'SCRIPT'
+# The catalog comes from the running app at Tab time and is never evaluated: each line is checked and bad
+# ones are skipped. The result, empty or not, is kept for 10 seconds so a slow or hung docker costs little.
+_yena_ok() {
+	case $1 in
+		'' | [!A-Za-z0-9]* | *[!A-Za-z0-9._-]*) return 1 ;;
+	esac
+	[ "${#1}" -le 64 ]
+}
+_yena_load() {
+	if [ -n "${_yena_at-}" ] && [ $(( ${SECONDS%.*} - _yena_at )) -lt 10 ]; then
+		return 0
+	fi
+	_yena_rows=()
+	local raw p d a b n=0
+	raw=$("$_yena_self" __commands </dev/null 2>/dev/null) || raw=''
+	_yena_at=${SECONDS%.*}
+	while IFS=$'\t' read -r p d || [ -n "$p" ]; do
+		n=$((n + 1))
+		[ "$n" -le 2000 ] || break
+		case $d in
+			*[[:cntrl:]]* | *$'\t'*) continue ;;
+		esac
+		case $p in
+			*' '*)
+				a=${p%% *}
+				b=${p#* }
+				{ _yena_ok "$a" && _yena_ok "$b"; } || continue
+				;;
+			*) _yena_ok "$p" || continue ;;
+		esac
+		_yena_rows+=("$p"$'\t'"$d")
+	done <<< "$raw"
+}
+# _yena_cands <command> <skip-script>: _yena_out gets "name<TAB>description" for the subcommands of
+# <command>, or for the top-level commands when it is empty (those of the script skipped if <skip-script>).
+_yena_cands() {
+	_yena_out=()
+	[ "${#_yena_rows[@]}" -gt 0 ] || return 0
+	local row p d
+	for row in "${_yena_rows[@]}"; do
+		p=${row%%$'\t'*}
+		d=${row#*$'\t'}
+		if [ -z "$1" ]; then
+			case $p in
+				*' '*) continue ;;
+			esac
+			if [ -n "$2" ]; then
+				case " $_yena_words " in
+					*" $p "*) continue ;;
+				esac
+			fi
+			_yena_out+=("$p"$'\t'"$d")
+		else
+			case $p in
+				"$1 "*) _yena_out+=("${p#* }"$'\t'"$d") ;;
+			esac
+		fi
+	done
+}
+# _yena_pick <first> <cword> <word-before>: fills _yena_out for the position, or leaves it empty.
+_yena_pick() {
+	_yena_out=()
+	case $1 in
+		console)
+			if [ "$2" -eq 2 ]; then _yena_cands '' ''
+			elif [ "$2" -eq 3 ] && _yena_ok "$3"; then _yena_cands "$3" ''
+			fi
+			;;
+		*)
+			case " $_yena_words " in
+				*" $1 "*) ;;
+				*) if [ "$2" -eq 2 ] && _yena_ok "$1"; then _yena_cands "$1" ''; fi ;;
+			esac
+			;;
+	esac
+}
+if [ -n "${ZSH_VERSION-}" ]; then
+	(( $+functions[compdef] )) || { autoload -Uz compinit && compinit; }
+	_yena() {
+		_yena_load
+		local -a items
+		local e
+		if (( CURRENT == 2 )); then
+			items=("${_yena_described[@]}")
+			_yena_cands '' skip
+			for e in "${_yena_out[@]}"; do items+=("${e%%$'\t'*}:${e#*$'\t'}"); done
+			_describe -t commands 'yena command' items
+		else
+			_yena_pick "${words[2]}" $((CURRENT - 1)) "${words[3]-}"
+			for e in "${_yena_out[@]}"; do items+=("${e%%$'\t'*}:${e#*$'\t'}"); done
+			(( ${#items} )) && _describe -t commands 'yena subcommand' items
+		fi
+	}
+	compdef _yena yena ./yena
+elif [ -n "${BASH_VERSION-}" ]; then
+	_yena() {
+		COMPREPLY=()
+		local cur=${COMP_WORDS[COMP_CWORD]} e n
+		_yena_load
+		if [ "$COMP_CWORD" -eq 1 ]; then
+			for n in $_yena_words; do
+				[[ $n == "$cur"* ]] && COMPREPLY+=("$n")
+			done
+			_yena_cands '' skip
+		else
+			_yena_pick "${COMP_WORDS[1]}" "$COMP_CWORD" "${COMP_WORDS[2]-}"
+		fi
+		[ "${#_yena_out[@]}" -gt 0 ] || return 0
+		for e in "${_yena_out[@]}"; do
+			n=${e%%$'\t'*}
+			[[ $n == "$cur"* ]] && COMPREPLY+=("$n")
+		done
+		return 0
+	}
+	complete -o default -F _yena yena ./yena
+fi
+SCRIPT
+}
+
+# Hints go to stderr so stdout stays the output of the command itself.
+hint() {
+	if [ "${YENA_HINTS:-}" = off ]; then
+		return 0
+	fi
+	if [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; then
+		printf '\033[2mhint: %s\033[0m\n' "$1" >&2
+	else
+		printf 'hint: %s\n' "$1" >&2
+	fi
+}
+
+# report <status> <ok-hint> <fail-hint>: "@S" in the fail hint becomes the status; 128+ means a signal, no hint.
+report() {
+	if [ "$1" -eq 0 ]; then
+		if [ -n "$2" ]; then hint "$2"; fi
+	elif [ "$1" -lt 128 ] && [ -n "$3" ]; then
+		msg=$3
+		case $msg in
+			*@S*) msg="${msg%%@S*}$1${msg#*@S}" ;;
+		esac
+		hint "$msg"
+	fi
+}
+
+finish() {
+	report "$1" "$2" "$3"
+	exit "$1"
+}
+
+# suggest <input>: up to three commands that look like the input, in table order. Only names from the
+# table are printed; the input reaches awk through the environment, never through the program text.
+suggest() {
+	if [ "${#1}" -gt 32 ]; then
+		return 0
+	fi
+	alias=''
+	case $1 in
+		stop) alias=down ;;
+		status) alias=ps ;;
+		shell | bash) alias=sh ;;
+		run | dev) alias=yena ;;
+		log) alias=logs ;;
+	esac
+	printf '%s\n' "$TABLE" | cut -d'|' -f1 | YENA_IN=$1 YENA_ALIAS=$alias awk '
+	function lev(a, b,    la, lb, i, j, c, t, prev, cur) {
+		la = length(a); lb = length(b)
+		for (j = 0; j <= lb; j++) prev[j] = j
+		for (i = 1; i <= la; i++) {
+			cur[0] = i
+			for (j = 1; j <= lb; j++) {
+				c = (substr(a, i, 1) == substr(b, j, 1)) ? 0 : 1
+				t = prev[j - 1] + c
+				if (prev[j] + 1 < t) t = prev[j] + 1
+				if (cur[j - 1] + 1 < t) t = cur[j - 1] + 1
+				cur[j] = t
+			}
+			for (j = 0; j <= lb; j++) prev[j] = cur[j]
+		}
+		return prev[lb]
+	}
+	BEGIN { inp = ENVIRON["YENA_IN"]; al = ENVIRON["YENA_ALIAS"]; max = (length(inp) <= 3) ? 1 : 2; n = 0; out = "" }
+	seen[$0]++ { next }
+	n < 3 && ($0 == al || (length(inp) >= 2 && index($0, inp) == 1) || lev(inp, $0) <= max) {
+		out = out (n ? ", " : "") "./yena " $0
+		n++
+	}
+	END { if (n) print out }
+	'
 }
 
 ensure_up() {
-	docker ps -q --filter 'name=^yena$' | grep -q . || docker compose up -d
+	if docker ps -q --filter 'name=^yena$' | grep -q .; then
+		return 0
+	fi
+	hint 'The container is not running; starting it (docker compose up -d).'
+	up_status=0
+	docker compose up -d || up_status=$?
+	if [ "$up_status" -ne 0 ]; then
+		hint "Could not start the container (exit $up_status). Is Docker running? After Dockerfile changes: ./yena build, then ./yena rebuild."
+		exit "$up_status"
+	fi
 }
 
 run_exec() {
@@ -48,10 +316,25 @@ run_exec() {
 	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena "$@"
 }
 
-exec_in() {
-	tty=''
-	[ -t 0 ] && tty=-t
-	exec docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena "$@"
+# compose_hinted <ok-hint> <fail-hint> <args>: docker compose, then the hint; keeps docker's exit status.
+compose_hinted() {
+	ok=$1
+	bad=$2
+	shift 2
+	status=0
+	docker compose "$@" || status=$?
+	finish "$status" "$ok" "$bad"
+}
+
+# exec_hinted <ok-hint> <fail-hint> <command>: the command in the container, then the hint.
+exec_hinted() {
+	ok=$1
+	bad=$2
+	shift 2
+	ensure_up
+	status=0
+	run_exec "$@" || status=$?
+	finish "$status" "$ok" "$bad"
 }
 
 # Docker does not stop a process in the container when its exec client goes away (a closed terminal
@@ -95,9 +378,13 @@ watch_clipboard() {
 	done
 }
 
+# run_tracked [--clipboard|--console] <command...>: --console asks for a terminal only when stdout is one too.
 run_tracked() {
 	tty=''
-	[ -t 0 ] && tty=-t
+	if [ -t 0 ] && { [ "${1-}" != --console ] || [ -t 1 ]; }; then
+		tty=-t
+	fi
+	[ "${1-}" = --console ] && shift
 	mark="/tmp/yena-exec/$$.$(date +%s)"
 	clip_env=''
 	clip_pid=''
@@ -114,8 +401,16 @@ run_tracked() {
 	trap 'exit 143' TERM
 	status=0
 	docker exec -e YENA_LOG_LEVEL -e YENA_LOG $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
-	exit "$status"
+	if [ "$status" -eq 2 ] && [ -n "${SUGGEST_FOR:-}" ]; then
+		likely=$(suggest "$SUGGEST_FOR" || true)
+		if [ -n "$likely" ]; then
+			printf 'Did you mean the script command: %s?\n' "$likely" >&2
+		fi
+	fi
+	finish "$status" '' "${FAIL_HINT:-}"
 }
+
+APP_FAIL='The app exited with status @S. Debug: YENA_LOG_LEVEL=debug ./yena; recent log: ./yena sh, then npm run logs.'
 
 cmd=${1:-yena}
 if [ $# -gt 0 ]; then
@@ -124,17 +419,23 @@ fi
 
 case $cmd in
 	help | -h | --help | up | down | restart | build | rebuild | ps | logs | kill | \
-	yena | start | sh | install | typecheck | test | typecheck-modules | \
-	test-modules | check | compile | claude) ;;
+	yena | start | sh | install | typecheck | test | compile | completion | __commands) ;;
+	console)
+		if [ $# -eq 0 ]; then
+			printf '%s\n' 'Usage: ./yena console <words>  (runs the words as a yena console line, e.g. ./yena console help)' >&2
+			exit 2
+		fi
+		;;
 	*)
-		printf 'Unknown command: %s\n' "$cmd" >&2
-		printf '%s\n' 'Run ./yena help for the list of commands.' >&2
-		exit 2
+		SUGGEST_FOR=$cmd
+		set -- "$cmd" "$@"
+		cmd=console
 		;;
 esac
 
-if [ "$cmd" != claude ] && [ $# -gt 0 ]; then
+if [ "$cmd" != console ] && [ $# -gt 0 ]; then
 	printf '%s takes no arguments\n' "$cmd" >&2
+	printf '%s\n' 'Arguments go to console commands: ./yena console <words>.' >&2
 	exit 2
 fi
 
@@ -143,11 +444,13 @@ case $cmd in
 		usage
 		exit 0
 		;;
-	claude)
-		if [ ! -x modules/claude/bin/claude ]; then
-			printf '%s\n' 'The claude module is not installed: mod install git@github.com:hyenayena/claude.git' >&2
-			exit 1
-		fi
+	completion)
+		completion
+		exit 0
+		;;
+	__commands)
+		console_rows
+		exit 0
 		;;
 esac
 
@@ -157,11 +460,11 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 case $cmd in
-	up) exec docker compose up -d ;;
-	down) exec docker compose down ;;
-	restart) exec docker compose restart ;;
-	build) exec docker compose build ;;
-	rebuild) exec docker compose up -d --force-recreate ;;
+	up) compose_hinted 'Container is up. Next: ./yena (app), ./yena sh, ./yena ps' '' up -d ;;
+	down) compose_hinted 'Container removed. Any app command starts it again (or ./yena up).' '' down ;;
+	restart) compose_hinted 'Restarted. ./yena logs follows its output.' '' restart ;;
+	build) compose_hinted 'Image built. Run ./yena rebuild to recreate the container from it.' '' build ;;
+	rebuild) compose_hinted 'Container recreated. Run ./yena to start the app.' '' up -d --force-recreate ;;
 	kill)
 		if ! docker ps -q --filter 'name=^yena$' | grep -q .; then
 			printf '%s\n' 'The container is not running; nothing to stop.'
@@ -171,20 +474,16 @@ case $cmd in
 		;;
 	ps) exec docker compose ps ;;
 	logs) exec docker compose logs -f ;;
-	yena) ensure_up; run_tracked --clipboard npm run dev ;;
-	start) ensure_up; run_tracked --clipboard npm start ;;
+	yena) FAIL_HINT=$APP_FAIL; ensure_up; run_tracked --clipboard npm run dev ;;
+	start) FAIL_HINT=$APP_FAIL; ensure_up; run_tracked --clipboard npm start ;;
 	sh) ensure_up; run_tracked sh ;;
-	install) ensure_up; exec_in npm install ;;
-	typecheck) ensure_up; exec_in npm run typecheck ;;
-	test) ensure_up; exec_in npm test ;;
-	typecheck-modules) ensure_up; exec_in npm run typecheck:modules ;;
-	test-modules) ensure_up; exec_in npm run test:modules ;;
-	compile) ensure_up; exec_in npm run build ;;
-	check)
+	install) exec_hinted 'Dependencies installed. ./yena typecheck and ./yena test check the host.' '' npm install ;;
+	typecheck) exec_hinted '' 'typecheck failed (exit @S).' npm run typecheck ;;
+	test) exec_hinted '' 'test failed (exit @S).' npm test ;;
+	compile) exec_hinted 'Compiled into dist/. ./yena start runs it.' '' npm run build ;;
+	console)
+		FAIL_HINT='console command failed (exit @S)'
 		ensure_up
-		for script in typecheck test typecheck:modules test:modules; do
-			run_exec npm run "$script" || exit $?
-		done
+		run_tracked --console node_modules/.bin/tsx src/cli.ts --run -- "$@"
 		;;
-	claude) ensure_up; run_tracked modules/claude/bin/claude "$@" ;;
 esac

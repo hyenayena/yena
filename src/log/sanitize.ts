@@ -49,6 +49,13 @@ export function cleanText(scrub: Scrub, input: unknown, cap: number): string {
 	return text;
 }
 
+const CONTROLS = new RegExp('[\\u0000-\\u0008\\u000b-\\u001f\\u007f]', 'g');
+
+// Text for the terminal: escape sequences and control characters removed, newlines kept.
+export function terminalText(input: unknown, cap: number): string {
+	return cleanText({redact: text => text, ctl: 0}, input, cap).replace(CONTROLS, '');
+}
+
 function safeString(value: unknown): string {
 	try {
 		return String(value);

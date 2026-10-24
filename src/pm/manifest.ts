@@ -10,6 +10,7 @@ export type Manifest = {
 	runtime?: string;
 	entry?: string;
 	install?: string;
+	headless?: string;
 	dependencies: Record<string, string>;
 };
 
@@ -46,7 +47,7 @@ function validate(data: unknown): Manifest {
 	}
 	if (typeof m.version !== 'string' || !m.version) fail('"version" is required');
 
-	for (const key of ['description', 'runtime', 'entry', 'install'] as const) {
+	for (const key of ['description', 'runtime', 'entry', 'install', 'headless'] as const) {
 		if (m[key] !== undefined && typeof m[key] !== 'string') fail(`"${key}" must be a string`);
 	}
 
@@ -65,6 +66,7 @@ function validate(data: unknown): Manifest {
 		runtime: m.runtime as string | undefined,
 		entry: m.entry as string | undefined,
 		install: m.install as string | undefined,
+		headless: m.headless as string | undefined,
 		dependencies: deps as Record<string, string>,
 	};
 }

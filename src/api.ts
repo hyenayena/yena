@@ -88,6 +88,8 @@ export type CommandContext = {
 	commandBridge?: CommandBridge;
 	// Aborted on agent-run timeout or abort; commands may honour it.
 	signal?: AbortSignal;
+	// True in a one-shot terminal run (`--run`): commands must not start background work.
+	headless?: boolean;
 };
 
 export type SettingOption = {
@@ -164,3 +166,9 @@ export type PluginHost = {
 export type ModulePlugin = (host: PluginHost) => Command[] | Promise<Command[]>;
 
 export type ModuleMain = (yena: Yena) => void | Promise<void>;
+
+// `catalog` prints the command list for shell completion instead of running `args`.
+export type HeadlessRequest = {args: string[]; catalog?: boolean};
+
+// Runs one console line without the UI. Throws `Error` on failure; `exitCode === 2` means an unknown command or invalid line.
+export type HeadlessMain = (yena: Yena, request: HeadlessRequest) => Promise<void>;
