@@ -6,3 +6,4 @@ dist/
 modules/
 logs/
 workplace/
+.env

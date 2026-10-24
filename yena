@@ -67,15 +67,53 @@ stop_tracked() {
 	docker exec yena sh -c "$TRACK_STOP" "$1" >/dev/null 2>&1 || true
 }
 
+# Text copied in the app (mouse selection) reaches the host clipboard even where the terminal ignores
+# OSC 52: the app writes it as a file into .yena/.clipboard (/data/.clipboard in the container) and this
+# script hands each file to the host's copy command and deletes it.
+CLIP_DIR=.yena/.clipboard
+
+clip_copier() {
+	if [ "${YENA_CLIPBOARD:-}" = off ]; then
+		return 0
+	elif command -v pbcopy >/dev/null 2>&1; then
+		echo pbcopy
+	elif [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+		echo wl-copy
+	elif [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+		echo 'xclip -selection clipboard'
+	fi
+}
+
+watch_clipboard() {
+	while :; do
+		for f in "$CLIP_DIR"/*.txt; do
+			[ -f "$f" ] || continue
+			$1 < "$f" >/dev/null 2>&1 || true
+			rm -f "$f"
+		done
+		sleep 0.3
+	done
+}
+
 run_tracked() {
 	tty=''
 	[ -t 0 ] && tty=-t
 	mark="/tmp/yena-exec/$$.$(date +%s)"
-	trap 'stop_tracked "$mark"' EXIT
+	clip_env=''
+	clip_pid=''
+	copier=''
+	[ "${1-}" = --clipboard ] && shift && copier=$(clip_copier)
+	if [ -n "$copier" ] && mkdir -p "$CLIP_DIR" 2>/dev/null && chmod 700 "$CLIP_DIR"; then
+		rm -f "$CLIP_DIR"/*.txt
+		watch_clipboard "$copier" &
+		clip_pid=$!
+		clip_env='-e YENA_CLIPBOARD_DIR=/data/.clipboard'
+	fi
+	trap 'stop_tracked "$mark"; [ -z "$clip_pid" ] || kill "$clip_pid" 2>/dev/null || true' EXIT
 	trap 'exit 129' HUP
 	trap 'exit 143' TERM
 	status=0
-	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
 	exit "$status"
 }
 
@@ -133,8 +171,8 @@ case $cmd in
 		;;
 	ps) exec docker compose ps ;;
 	logs) exec docker compose logs -f ;;
-	yena) ensure_up; run_tracked npm run dev ;;
-	start) ensure_up; run_tracked npm start ;;
+	yena) ensure_up; run_tracked --clipboard npm run dev ;;
+	start) ensure_up; run_tracked --clipboard npm start ;;
 	sh) ensure_up; run_tracked sh ;;
 	install) ensure_up; exec_in npm install ;;
 	typecheck) ensure_up; exec_in npm run typecheck ;;

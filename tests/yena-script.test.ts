@@ -20,6 +20,7 @@ const STUB = `#!/bin/sh
 	printf '%s\\n' '${END}'
 } >> "$STUB_LOG"
 if [ "$1" = ps ] && [ -n "\${STUB_PS-}" ]; then printf '%s\\n' "$STUB_PS"; fi
+case " $* " in *" npm "*) if [ -n "\${STUB_CLIP-}" ]; then printf '%s' "$STUB_CLIP" > .yena/.clipboard/.part; mv .yena/.clipboard/.part .yena/.clipboard/1.txt; sleep 1; fi ;; esac
 if [ -n "\${STUB_EXIT-}" ]; then
 	for a in "$@"; do
 		if [ "$a" = "\${STUB_FAIL_ON-}" ]; then exit "$STUB_EXIT"; fi
@@ -78,6 +79,8 @@ function runAs(fx: Fixture, file: string, argv: string[], cwd: string, extra: Re
 	delete env.NO_COLOR;
 	delete env.STUB_EXIT;
 	delete env.STUB_FAIL_ON;
+	// The host's copy command (pbcopy) is used only by the tests that ask for it.
+	env.YENA_CLIPBOARD = 'off';
 	Object.assign(env, extra);
 	env.PATH = pathVar ?? `${fx.bin}:${process.env.PATH ?? ''}`;
 	const r = spawnSync(file, argv, {cwd, env, encoding: 'utf8', timeout: 30_000});
@@ -176,6 +179,23 @@ test('a tracked command stops its marked process group with the same mark it sta
 	const stop = all[2]!;
 	assert.equal(stop[5], start[start.indexOf('yena') + 4], 'the stop call names the started mark');
 	assert.deepEqual(stop.slice(0, 4), ['exec', 'yena', 'sh', '-c']);
+});
+
+test('yena hands text the app copies to the host clipboard and stops watching at exit', async () => {
+	const fx = await makeFixture();
+	const clipLog = path.join(fx.bin, 'clip.log');
+	await writeFile(path.join(fx.bin, 'pbcopy'), `#!/bin/sh\ncat >> '${clipLog}'\n`);
+	await chmod(path.join(fx.bin, 'pbcopy'), 0o755);
+	const r = run(fx, ['yena'], {YENA_CLIPBOARD: '', STUB_CLIP: 'copied text'});
+	assert.equal(r.status, 0, r.stderr);
+	const exec = (await argsOf(fx))[1]!;
+	assert.deepEqual(exec.slice(0, 7), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
+	assert.equal(await readFile(clipLog, 'utf8'), 'copied text');
+	assert.equal(existsSync(path.join(fx.dir, '.yena', '.clipboard', '1.txt')), false, 'the file is deleted once copied');
+	// Without a copy command nothing is passed to the app.
+	const plain = await makeFixture();
+	assert.equal(run(plain, ['yena']).status, 0);
+	assert.equal((await argsOf(plain))[1]!.includes('YENA_CLIPBOARD_DIR=/data/.clipboard'), false);
 });
 
 test('check runs the steps in order and stops at the first failure', async () => {
