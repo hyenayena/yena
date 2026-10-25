@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import {stat} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {register} from 'tsx/esm/api';
-import type {HeadlessMain, Logger, ModuleMain} from './api.js';
+import type {BuildInfo, HeadlessMain, Logger, ModuleMain} from './api.js';
 import {createEventBus} from './events.js';
 import {createHostLogger, installProcessHooks, setHostLog} from './log/index.js';
 import {terminalText} from './log/sanitize.js';
@@ -37,6 +37,25 @@ async function ensureCore(dir: string, logger: Logger) {
 	print('core is not installed, downloading…');
 	await install([], print);
 	if (!(await exists(dir))) await install([CORE], print);
+}
+
+// package.json sits one level above both src/cli.ts and dist/cli.js.
+async function hostVersion(): Promise<string> {
+	try {
+		const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {version?: unknown};
+		return typeof pkg.version === 'string' ? pkg.version : 'unknown';
+	} catch {
+		return 'unknown';
+	}
+}
+
+async function buildInfo(modules: {manifest: Manifest}[]): Promise<BuildInfo> {
+	return {
+		version: await hostVersion(),
+		modules: modules
+			.map(m => ({name: m.manifest.name, version: m.manifest.version}))
+			.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+	};
 }
 
 const logger = createHostLogger({root, env: process.env});
@@ -80,6 +99,7 @@ async function main() {
 		dataDirFor: moduleDataDir,
 		log: line => console.warn(`Warning: ${line}`),
 		logger,
+		build: await buildInfo(modules),
 	});
 	logger.info('core loaded', {module: manifest.name, version: manifest.version});
 	await mod.default({
@@ -107,6 +127,7 @@ async function runHeadless(dir: string, manifest: Manifest) {
 		dataDirFor: moduleDataDir,
 		log: line => console.warn(`Warning: ${line}`),
 		logger,
+		build: await buildInfo(modules),
 	});
 	const started = Date.now();
 	let status = 'ok';

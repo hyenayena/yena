@@ -64,6 +64,20 @@ test('loads plugins in name order with their own data dir and the shared bus', a
 	assert.equal(host.events, events);
 });
 
+test('passes the build info to every plugin, and omits it when the host has none', async () => {
+	const probe = (name: string) => `export default host => [{name: '${name}', description: '', run() {}, host}];`;
+	const {base, modules} = await setup([
+		{name: 'a', source: probe('a-cmd')},
+		{name: 'b', source: probe('b-cmd')},
+	]);
+	const build = {version: '1.2.3', modules: [{name: 'a', version: '1.0.0'}]};
+	const hostOf = (c: Command) => (c as unknown as {host: {build?: unknown}}).host;
+	const {commands} = await load(modules, base, {build});
+	assert.deepEqual(commands.map(c => hostOf(c).build), [build, build]);
+	const {commands: bare} = await load(modules, base);
+	assert.equal('build' in hostOf(bare[0]!), false);
+});
+
 test('missing entry file is skipped and others load', async () => {
 	const {base, modules} = await setup([{name: 'x'}, {name: 'y', source: ok('y')}]);
 	const {commands, logs} = await load(modules, base);

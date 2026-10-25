@@ -26,11 +26,19 @@ export type ViewHost = {
 	isHostKey(input: string, key?: {escape?: boolean; ctrl?: boolean}): boolean;
 };
 
+// A click on line `line` (0-based, of the printed text split on `\n`) copies `copy` to the clipboard.
+export type PrintAction = {line: number; copy: string};
+
+// `render`: the text laid out for a transcript `width` in cells; the main transcript calls it again when
+// its width changes and shows the result instead of `text`. Places that ignore options show `text`.
+export type PrintOptions = {actions?: PrintAction[]; render?: (width: number) => string};
+
 export type MountControl = {
 	// Idempotent.
 	close(): void;
-	// Prints into the area the view belongs to; falls back to `ctx.print` when absent.
-	print?: (text: string) => void;
+	// Prints into the area the view belongs to; falls back to `ctx.print` when absent. `options` is
+	// honoured by the main transcript and ignored elsewhere.
+	print?: (text: string, options?: PrintOptions) => void;
 	host?: ViewHost;
 	// Puts text on the terminal's clipboard, as `CommandContext.copyToClipboard`; absent in assistant runs.
 	copyToClipboard?: (text: string) => boolean;
@@ -169,10 +177,18 @@ export type Yena = {
 	log: Logger;
 };
 
+// What this yena run is made of: the host version and every installed module, sorted by name.
+export type BuildInfo = {
+	version: string;
+	modules: {name: string; version: string}[];
+};
+
 export type PluginHost = {
 	dataDir: string;
 	events: EventBus;
 	log: Logger;
+	// Absent in hosts older than the field.
+	build?: BuildInfo;
 };
 
 export type ModulePlugin = (host: PluginHost) => Command[] | Promise<Command[]>;

@@ -1,5 +1,5 @@
 import {pathToFileURL} from 'node:url';
-import type {Command, EventBus, Logger, ModulePlugin} from '../api.js';
+import type {BuildInfo, Command, EventBus, Logger, ModulePlugin} from '../api.js';
 import {noopLogger} from '../log/index.js';
 import type {Manifest} from './manifest.js';
 import {resolveInside} from './paths.js';
@@ -11,6 +11,7 @@ export type LoadPluginsOptions = {
 	dataDirFor: (name: string) => Promise<string>;
 	log: (line: string) => void;
 	logger?: Logger;
+	build?: BuildInfo;
 	importer?: (url: string) => Promise<unknown>;
 	timeoutMs?: number;
 };
@@ -59,7 +60,12 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 			const mod = (await importer(pathToFileURL(file).href)) as {default?: ModulePlugin};
 			if (typeof mod.default !== 'function') throw new Error(`${manifest.entry} must export a default function`);
 			const plugin = mod.default;
-			const host = {dataDir: await opts.dataDirFor(manifest.name), events: opts.events, log: logger.child(manifest.name)};
+			const host = {
+				dataDir: await opts.dataDirFor(manifest.name),
+				events: opts.events,
+				log: logger.child(manifest.name),
+				...(opts.build && {build: opts.build}),
+			};
 			const commands = validate(await withTimeout(Promise.resolve().then(() => plugin(host)), timeoutMs));
 			for (const c of commands) {
 				if (taken.has(c.name)) throw new Error(`command "${c.name}" is already defined`);
