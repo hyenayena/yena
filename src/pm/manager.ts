@@ -4,7 +4,7 @@ import path from 'node:path';
 import {hostLog} from '../log/index.js';
 import {readManifest, type Manifest} from './manifest.js';
 import {run, type Log} from './run.js';
-import {parseSource, type Source} from './source.js';
+import {officialModuleName, parseSource, type Source} from './source.js';
 
 export const root = process.env.YENA_HOME ?? process.cwd();
 export const modulesDir = path.join(root, 'modules');
@@ -149,7 +149,11 @@ export async function install(specs: string[], log: Log) {
 	trace.info('install command started', {specs: specs.length});
 
 	if (specs.length > 0) {
-		for (const spec of specs) await installOne(spec, s);
+		for (const spec of new Set(specs)) {
+			const name = officialModuleName(spec);
+			if (name && s.seen.has(name)) continue;
+			await installOne(spec, s);
+		}
 		trace.info('install command finished', {specs: specs.length});
 		return;
 	}

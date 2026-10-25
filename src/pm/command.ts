@@ -40,6 +40,7 @@ const subcommands: Subcommand[] = [
 
 const notes = [
 	'Sources: core (official module by name), user/repo, gitlab:user/repo, https://host/repo.git, ./folder',
+	'Several at once: mod install core dev task',
 	'Version: append #branch, #tag or #commit, e.g. core#v1.2',
 ];
 
