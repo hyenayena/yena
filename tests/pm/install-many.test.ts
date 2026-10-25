@@ -21,3 +21,12 @@ test('install takes several sources at once and locks each', async () => {
 	const lock = JSON.parse(await readFile(path.join(home, 'yena-modules.json'), 'utf8'));
 	assert.deepEqual(Object.keys(lock.modules), ['one', 'two']);
 });
+
+test('install refuses to replace a module that is a git checkout', async () => {
+	const src = await source('dev');
+	await install([src], () => {});
+	await mkdir(path.join(home, 'modules', 'dev', '.git'));
+	await writeFile(path.join(home, 'modules', 'dev', 'work.txt'), 'mine');
+	await assert.rejects(install([src], () => {}), /modules\/dev is a git checkout/);
+	assert.equal(await readFile(path.join(home, 'modules', 'dev', 'work.txt'), 'utf8'), 'mine');
+});

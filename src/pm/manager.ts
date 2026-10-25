@@ -105,6 +105,10 @@ async function installOne(spec: string, s: Session, pinCommit?: string): Promise
 
 		// Keep the old version as a backup until the install script passes
 		const target = path.join(modulesDir, manifest.name);
+		// A module directory with its own .git is a working copy someone develops in; replacing it would lose their work
+		if (await exists(path.join(target, '.git'))) {
+			throw new Error(`modules/${manifest.name} is a git checkout; update it with git or remove it first`);
+		}
 		const hadOld = await exists(target);
 		if (hadOld) await rename(target, backup);
 		await rename(staging, target);
