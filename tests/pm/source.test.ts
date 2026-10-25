@@ -40,3 +40,12 @@ test('relative and absolute paths resolve against the base directory', () => {
 test('an unrecognized source throws', () => {
 	assert.throws(() => parseSource('not a source', base), /Unrecognized source/);
 });
+
+test('a bare name is an official module', async () => {
+	const {officialModuleName} = await import('../../src/pm/source.js');
+	assert.deepEqual(parseSource('core', base), {kind: 'git', url: 'git@github.com:hyenayena/core.git', ref: undefined});
+	assert.deepEqual(parseSource('task#v0.2', base), {kind: 'git', url: 'git@github.com:hyenayena/task.git', ref: 'v0.2'});
+	assert.equal(officialModuleName('core#main'), 'core');
+	assert.equal(officialModuleName('user/repo'), undefined);
+	assert.equal(officialModuleName('Core'), undefined);
+});

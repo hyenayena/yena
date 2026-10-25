@@ -39,8 +39,8 @@ const subcommands: Subcommand[] = [
 ];
 
 const notes = [
-	'Sources: user/repo, gitlab:user/repo, https://host/repo.git, ./folder',
-	'Version: append #branch, #tag or #commit, e.g. user/repo#v1.2',
+	'Sources: core (official module by name), user/repo, gitlab:user/repo, https://host/repo.git, ./folder',
+	'Version: append #branch, #tag or #commit, e.g. core#v1.2',
 ];
 
 const find = (name: string) => subcommands.find(s => s.name === name || s.aliases?.includes(name));

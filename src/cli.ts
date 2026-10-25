@@ -14,7 +14,6 @@ import {resolveInside} from './pm/paths.js';
 import {loadPlugins} from './pm/plugins.js';
 
 const CORE = 'core';
-const CORE_SOURCE = 'git@github.com:hyenayena/core.git';
 
 register();
 
@@ -37,7 +36,7 @@ async function ensureCore(dir: string, logger: Logger) {
 	logger.info('core missing, installing');
 	print('core is not installed, downloading…');
 	await install([], print);
-	if (!(await exists(dir))) await install([CORE_SOURCE], print);
+	if (!(await exists(dir))) await install([CORE], print);
 }
 
 const logger = createHostLogger({root, env: process.env});
