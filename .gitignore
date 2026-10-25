@@ -7,3 +7,4 @@ modules/
 logs/
 workplace/
 .env
+yena-modules.json
