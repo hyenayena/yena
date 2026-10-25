@@ -32,6 +32,8 @@ export type MountControl = {
 	// Prints into the area the view belongs to; falls back to `ctx.print` when absent.
 	print?: (text: string) => void;
 	host?: ViewHost;
+	// Puts text on the terminal's clipboard, as `CommandContext.copyToClipboard`; absent in assistant runs.
+	copyToClipboard?: (text: string) => boolean;
 };
 
 // `main` is the primary area (e.g. a chat), `panel` the console side panel.
@@ -108,10 +110,20 @@ export type Setting = {
 	set: (value: string) => void | Promise<void>;
 };
 
-// One tab of the settings screen, contributed by a command.
+// A row that opens a view in place of the settings screen (e.g. a form); `control.close()` returns
+// to the screen, which then reads its tabs again.
+export type SettingAction = {
+	key: string;
+	label: string;
+	description?: string;
+	open: (control: MountControl) => UiElement;
+};
+
+// One tab of the settings screen, contributed by a command. Actions are listed first.
 export type SettingsTab = {
 	title: string;
 	settings: Setting[];
+	actions?: SettingAction[];
 };
 
 export type Subcommand = {
