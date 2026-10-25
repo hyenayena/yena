@@ -9,7 +9,8 @@ import {fileURLToPath} from 'node:url';
 
 const script = fileURLToPath(new URL('../yena', import.meta.url));
 const END = '--end--';
-const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-i', 'yena'];
+const STATUS_ENV = ['-e', 'YENA_STATUS_DIR=/tmp/yena-status'];
+const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', ...STATUS_ENV, '-i', 'yena'];
 const PS = ['ps', '-q', '--filter', 'name=^yena$'];
 const UP = ['compose', 'up', '-d'];
 
@@ -201,7 +202,7 @@ test('yena hands text the app copies to the host clipboard and stops watching at
 	const r = run(fx, ['yena'], {YENA_CLIPBOARD: '', STUB_CLIP: 'copied text'});
 	assert.equal(r.status, 0, r.stderr);
 	const exec = (await argsOf(fx))[1]!;
-	assert.deepEqual(exec.slice(0, 7), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
+	assert.deepEqual(exec.slice(0, 9), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
 	assert.equal(await readFile(clipLog, 'utf8'), 'copied text');
 	assert.equal(existsSync(path.join(fx.dir, '.yena', '.clipboard', '1.txt')), false, 'the file is deleted once copied');
 	// Without a copy command nothing is passed to the app.
@@ -260,7 +261,11 @@ test('kill stops the app and runner processes inside a running container', async
 	assert.match(body, /pkill -TERM -f -- "\$pat"/);
 	assert.match(body, /pkill -KILL -f -- "\$pat"/);
 	assert.match(body, /\[s\]rc\/cli\\\.ts\|\[r\]unner\/main\\\.ts/, 'bracketed so the pattern never matches its own shell');
-	assert.match(body, /rm -rf \/tmp\/yena-exec/);
+	assert.match(body, /rm -rf \/tmp\/yena-exec "\/tmp\/yena-status"/);
+	assert.match(body, /for p in \$\(pgrep -f -- "\$pat"\); do f="\/tmp\/yena-status\/\$p"/, 'reads the status lines before stopping');
+	assert.ok(body.indexOf('/tmp/yena-status/$p') < body.indexOf('pkill -TERM'));
+	assert.match(body, /tr -cd " -\[\]-~"/, 'printable ASCII without backslashes');
+	assert.ok(!body.includes('\n'), 'one line, so docker gets one argument');
 });
 
 test('kill with a stopped container does nothing and says so', async () => {
@@ -585,7 +590,7 @@ test('zsh registers the completion for yena and ./yena', {skip: !hasShell('zsh')
 	assert.equal(r.stdout.trim(), '_yena _yena 18');
 });
 
-const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG'];
+const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', ...STATUS_ENV];
 const TSX = ['node_modules/.bin/tsx', 'src/cli.ts', '--run', '--'];
 const CATALOG_CALL = ['exec', '-e', 'YENA_LOG=off', 'yena', 'node_modules/.bin/tsx', 'src/cli.ts', '--catalog'];
 

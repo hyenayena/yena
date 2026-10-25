@@ -313,7 +313,7 @@ ensure_up() {
 run_exec() {
 	tty=''
 	[ -t 0 ] && tty=-t
-	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -i $tty yena "$@"
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
 }
 
 # compose_hinted <ok-hint> <fail-hint> <args>: docker compose, then the hint; keeps docker's exit status.
@@ -343,7 +343,11 @@ exec_hinted() {
 TRACK_RUN='mkdir -p /tmp/yena-exec && echo $$ > "$0" && "$@"; s=$?; rm -f "$0"; exit $s'
 # The bracket keeps the pattern from matching the shell that runs it. The count skips the node child that
 # tsx starts under its wrapper (its command line loads tsx/dist/preflight), so one app counts once.
-KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=$(ps -eo args= | grep -E -- "$pat" | grep -vc -- "tsx/dist/preflight"); if [ "$n" -gt 0 ]; then pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec; echo "Stopped $n yena instance(s)."'
+# A process with an open chat keeps one line about it in $STATUS_DIR/<pid> (YENA_STATUS_DIR); kill reads the
+# lines of the processes it stops before stopping them, keeps printable ASCII without backslashes (printf %b
+# expands them) and cuts them at 200.
+STATUS_DIR=/tmp/yena-status
+KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=$(ps -eo args= | grep -E -- "$pat" | grep -vc -- "tsx/dist/preflight"); report=""; if [ "$n" -gt 0 ]; then for p in $(pgrep -f -- "$pat"); do f="'"$STATUS_DIR"'/$p"; [ -f "$f" ] && report="$report  $(head -c 200 "$f" | tr -cd " -[]-~")\\n"; done; pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec "'"$STATUS_DIR"'"; echo "Stopped $n yena instance(s)."; printf "%b" "$report"'
 
 TRACK_STOP='p=$(cat "$0" 2>/dev/null) || exit 0; rm -f "$0"; kill -HUP -"$p" 2>/dev/null || kill -HUP "$p" 2>/dev/null; exit 0'
 
@@ -401,7 +405,7 @@ run_tracked() {
 	trap 'exit 129' HUP
 	trap 'exit 143' TERM
 	status=0
-	docker exec -e YENA_LOG_LEVEL -e YENA_LOG $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
 	if [ "$status" -eq 2 ] && [ -n "${SUGGEST_FOR:-}" ]; then
 		likely=$(suggest "$SUGGEST_FOR" || true)
 		if [ -n "$likely" ]; then
