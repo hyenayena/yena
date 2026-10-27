@@ -29,9 +29,14 @@ export type ViewHost = {
 // A click on line `line` (0-based, of the printed text split on `\n`) copies `copy` to the clipboard.
 export type PrintAction = {line: number; copy: string};
 
+// The text of a print laid out for one width, with the actions of that layout.
+export type RenderedPrint = {text: string; actions?: PrintAction[]};
+
 // `render`: the text laid out for a transcript `width` in cells; the main transcript calls it again when
-// its width changes and shows the result instead of `text`. Places that ignore options show `text`.
-export type PrintOptions = {actions?: PrintAction[]; render?: (width: number) => string};
+// its width changes and shows the result instead of `text`. When it returns a `RenderedPrint`, its
+// actions replace `actions` for that width (line numbers move when the text wraps differently).
+// Places that ignore options show `text`; an older core ignores a non-string result and shows `text`.
+export type PrintOptions = {actions?: PrintAction[]; render?: (width: number) => string | RenderedPrint};
 
 export type MountControl = {
 	// Idempotent.
