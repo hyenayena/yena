@@ -73,7 +73,8 @@ test('a throwing core: Error line and exit code unchanged, fatal logged with a s
 test('a missing core fails the clone: Error line identical, fatal logged', async () => {
 	const on = await makeHome(null);
 	const off = await makeHome(null);
-	const env = {GIT_CONFIG_GLOBAL: '/dev/null', GIT_SSH_COMMAND: 'false', GIT_CONFIG_NOSYSTEM: '1'};
+	// Core is fetched over https: no network protocol may reach out from the test.
+	const env = {GIT_CONFIG_GLOBAL: '/dev/null', GIT_SSH_COMMAND: 'false', GIT_CONFIG_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'file'};
 	const a = runCli(on, env);
 	const b = runCli(off, {...env, YENA_LOG: 'off'});
 	assert.equal(a.status, 1);

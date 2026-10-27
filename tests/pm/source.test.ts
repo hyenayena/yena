@@ -43,8 +43,11 @@ test('an unrecognized source throws', () => {
 
 test('a bare name is an official module', async () => {
 	const {officialModuleName} = await import('../../src/pm/source.js');
-	assert.deepEqual(parseSource('core', base), {kind: 'git', url: 'git@github.com:hyenayena/core.git', ref: undefined});
-	assert.deepEqual(parseSource('task#v0.2', base), {kind: 'git', url: 'git@github.com:hyenayena/task.git', ref: 'v0.2'});
+	// Over https, which needs no key; with an account (a private module) over ssh.
+	assert.deepEqual(parseSource('core', base), {kind: 'git', url: 'https://github.com/hyenayena/core.git', ref: undefined});
+	assert.deepEqual(parseSource('task#v0.2', base), {kind: 'git', url: 'https://github.com/hyenayena/task.git', ref: 'v0.2'});
+	assert.deepEqual(parseSource('task', base, {ssh: true}), {kind: 'git', url: 'git@github.com:hyenayena/task.git', ref: undefined});
+	assert.deepEqual(parseSource('user/repo', base, {ssh: true}), {kind: 'git', url: 'https://github.com/user/repo.git', ref: undefined});
 	assert.equal(officialModuleName('core#main'), 'core');
 	assert.equal(officialModuleName('user/repo'), undefined);
 	assert.equal(officialModuleName('Core'), undefined);

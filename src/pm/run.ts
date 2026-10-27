@@ -8,12 +8,14 @@ type Options = {
 	shell?: boolean;
 	log?: Log;
 	trace?: Logger;
-	/** Leave credentials and the ssh-agent out of the child's environment (module install scripts). */
+	/** Leave credentials and the ssh-agent out of the child's environment. */
 	scrubEnv?: boolean;
+	/** Added after the scrub (GIT_SSH_COMMAND of an account). */
+	env?: Record<string, string>;
 };
 
-// A module's install script (and the npm lifecycle scripts it may start) needs no credentials;
-// git fetch, which may need the ssh-agent for private modules, runs without this.
+// Neither a module's install script (nor the npm lifecycle scripts it may start) nor git fetch needs
+// the container's credentials or an ssh-agent: private modules are fetched with an account's key.
 const SECRET_NAME = /TOKEN|SECRET|PASSW|API_?KEY|CREDENTIAL|AUTH|PRIVATE|COOKIE|^AWS_|(ACCESS|SIGNING)_?KEY/i;
 const SSH_AGENT = new Set(['SSH_AUTH_SOCK', 'SSH_AGENT_PID']);
 
@@ -31,7 +33,7 @@ const STDERR_TAIL = 5;
 
 const cap = (text: string) => (text.length > LINE_CAP ? `${text.slice(0, LINE_CAP)}…` : text);
 
-export function run(cmd: string, args: string[], {cwd, shell, log, trace, scrubEnv}: Options = {}): Promise<string> {
+export function run(cmd: string, args: string[], {cwd, shell, log, trace, scrubEnv, env}: Options = {}): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const started = Date.now();
 		if (shell) trace?.info('child spawned', {shell: true, command: cap(cmd)});
@@ -41,7 +43,7 @@ export function run(cmd: string, args: string[], {cwd, shell, log, trace, scrubE
 			shell,
 			stdio: ['ignore', 'pipe', 'pipe'],
 			// Never let git wait for a password prompt that nobody can answer
-			env: {...(scrubEnv ? scrubbedEnv(process.env) : process.env), GIT_TERMINAL_PROMPT: '0'},
+			env: {...(scrubEnv ? scrubbedEnv(process.env) : process.env), ...env, GIT_TERMINAL_PROMPT: '0'},
 		});
 
 		let stdout = '';

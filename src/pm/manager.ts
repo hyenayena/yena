@@ -3,6 +3,7 @@ import {cp, mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs
 import path from 'node:path';
 import {hostLog} from '../log/index.js';
 import {readManifest, type Manifest} from './manifest.js';
+import {gitSshFor} from './git-ssh.js';
 import {run, type Log} from './run.js';
 import {officialModuleName, parseSource, type Source} from './source.js';
 
@@ -22,6 +23,8 @@ type LockEntry = {
 	source: string;
 	version: string;
 	commit?: string;
+	/** The account whose key fetched it (a private module); restores and updates use it again. */
+	account?: string;
 };
 
 type Lock = {modules: Record<string, LockEntry>};
@@ -48,7 +51,7 @@ async function exists(p: string) {
 	);
 }
 
-async function fetchSource(src: Source, dest: string, log: Log): Promise<string | undefined> {
+async function fetchSource(src: Source, dest: string, log: Log, account?: string): Promise<string | undefined> {
 	if (src.kind === 'path') {
 		if (!(await exists(src.path))) throw new Error(`Folder ${src.path} does not exist`);
 		if (!path.relative(modulesDir, src.path).startsWith('..')) {
@@ -63,7 +66,8 @@ async function fetchSource(src: Source, dest: string, log: Log): Promise<string 
 	await mkdir(dest, {recursive: true});
 	const trace = pmLog();
 	await run('git', ['init', '-q'], {cwd: dest, trace});
-	await run('git', ['fetch', '-q', '--depth', '1', src.url, src.ref ?? 'HEAD'], {cwd: dest, log, trace});
+	const env = account === undefined ? undefined : {GIT_SSH_COMMAND: await gitSshFor(account)};
+	await run('git', ['fetch', '-q', '--depth', '1', src.url, src.ref ?? 'HEAD'], {cwd: dest, log, trace, scrubEnv: true, ...(env && {env})});
 	await run('git', ['-c', 'advice.detachedHead=false', 'checkout', '-q', 'FETCH_HEAD'], {cwd: dest, trace});
 	const commit = (await run('git', ['rev-parse', 'HEAD'], {cwd: dest, trace})).trim();
 	await rm(path.join(dest, '.git'), {recursive: true, force: true});
@@ -76,9 +80,10 @@ type Session = {
 	seen: Set<string>;
 };
 
-async function installOne(spec: string, s: Session, pinCommit?: string): Promise<Manifest> {
+/** Dependencies are fetched with the account of the module that needs them, unless the lock names another. */
+async function installOne(spec: string, s: Session, pinCommit?: string, account?: string): Promise<Manifest> {
 	const trace = pmLog();
-	const src = parseSource(spec, root);
+	const src = parseSource(spec, root, {ssh: account !== undefined});
 	if (pinCommit && src.kind === 'git') src.ref = pinCommit;
 
 	await mkdir(modulesDir, {recursive: true});
@@ -87,8 +92,8 @@ async function installOne(spec: string, s: Session, pinCommit?: string): Promise
 
 	try {
 		s.log(`↓ ${spec}${pinCommit ? ` @ ${pinCommit.slice(0, 7)}` : ''}`);
-		trace.info('install started', {spec, kind: src.kind, pinned: pinCommit?.slice(0, 7)});
-		const commit = await fetchSource(src, staging, s.log);
+		trace.info('install started', {spec, kind: src.kind, pinned: pinCommit?.slice(0, 7), account: account !== undefined});
+		const commit = await fetchSource(src, staging, s.log, account);
 		const manifest = await readManifest(staging);
 		trace.info('fetched', {module: manifest.name, version: manifest.version, commit: commit?.slice(0, 7)});
 		s.seen.add(manifest.name);
@@ -97,7 +102,7 @@ async function installOne(spec: string, s: Session, pinCommit?: string): Promise
 		for (const [dep, depSpec] of Object.entries(manifest.dependencies)) {
 			if (s.seen.has(dep) || (await exists(path.join(modulesDir, dep)))) continue;
 			trace.info('installing dependency', {module: manifest.name, dependency: dep});
-			const installed = await installOne(depSpec, s, s.lock.modules[dep]?.commit);
+			const installed = await installOne(depSpec, s, s.lock.modules[dep]?.commit, s.lock.modules[dep]?.account ?? account);
 			if (installed.name !== dep) {
 				throw new Error(`Dependency "${dep}" is actually named "${installed.name}"`);
 			}
@@ -132,7 +137,7 @@ async function installOne(spec: string, s: Session, pinCommit?: string): Promise
 			throw error;
 		}
 
-		s.lock.modules[manifest.name] = {source: spec, version: manifest.version, commit};
+		s.lock.modules[manifest.name] = {source: spec, version: manifest.version, commit, ...(account !== undefined && {account})};
 		await writeLock(s.lock);
 		trace.info('lock written', {module: manifest.name});
 		s.log(`✓ ${manifest.name}@${manifest.version}`);
@@ -147,7 +152,9 @@ async function installOne(spec: string, s: Session, pinCommit?: string): Promise
 	}
 }
 
-export async function install(specs: string[], log: Log) {
+export type InstallOptions = {account?: string};
+
+export async function install(specs: string[], log: Log, {account}: InstallOptions = {}) {
 	const s: Session = {lock: await readLock(), log, seen: new Set()};
 	const trace = pmLog();
 	trace.info('install command started', {specs: specs.length});
@@ -156,7 +163,7 @@ export async function install(specs: string[], log: Log) {
 		for (const spec of new Set(specs)) {
 			const name = officialModuleName(spec);
 			if (name && s.seen.has(name)) continue;
-			await installOne(spec, s);
+			await installOne(spec, s, undefined, account);
 		}
 		trace.info('install command finished', {specs: specs.length});
 		return;
@@ -165,13 +172,13 @@ export async function install(specs: string[], log: Log) {
 	let restored = 0;
 	for (const [name, entry] of Object.entries(s.lock.modules)) {
 		if (s.seen.has(name) || (await exists(path.join(modulesDir, name)))) continue;
-		await installOne(entry.source, s, entry.commit);
+		await installOne(entry.source, s, entry.commit, entry.account);
 		restored++;
 	}
 	for (const manifest of await installedManifests()) {
 		for (const [dep, depSpec] of Object.entries(manifest.dependencies)) {
 			if (s.seen.has(dep) || (await exists(path.join(modulesDir, dep)))) continue;
-			await installOne(depSpec, s, s.lock.modules[dep]?.commit);
+			await installOne(depSpec, s, s.lock.modules[dep]?.commit, s.lock.modules[dep]?.account);
 			restored++;
 		}
 	}
@@ -190,7 +197,7 @@ export async function update(names: string[], log: Log) {
 		if (!entry) throw new Error(`Module "${name}" is not installed`);
 		if (s.seen.has(name)) continue;
 		const before = entry.commit;
-		const manifest = await installOne(entry.source, s);
+		const manifest = await installOne(entry.source, s, undefined, entry.account);
 		const after = s.lock.modules[manifest.name]?.commit;
 		if (before && before === after) log(`  (no changes)`);
 	}

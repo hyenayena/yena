@@ -1,6 +1,7 @@
 import {pathToFileURL} from 'node:url';
-import type {BuildInfo, Command, EventBus, Logger, ModulePlugin} from '../api.js';
+import type {BuildInfo, Command, EventBus, GitSshResolver, Logger, ModulePlugin} from '../api.js';
 import {noopLogger} from '../log/index.js';
+import {registerGitSsh} from './git-ssh.js';
 import type {Manifest} from './manifest.js';
 import {resolveInside} from './paths.js';
 
@@ -65,6 +66,9 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 				events: opts.events,
 				log: logger.child(manifest.name),
 				...(opts.build && {build: opts.build}),
+				registerGitSsh: (resolve: GitSshResolver) => {
+					if (!registerGitSsh(resolve)) logger.warn('git ssh resolver ignored', {module: manifest.name});
+				},
 			};
 			const commands = validate(await withTimeout(Promise.resolve().then(() => plugin(host)), timeoutMs));
 			for (const c of commands) {

@@ -188,12 +188,20 @@ export type BuildInfo = {
 	modules: {name: string; version: string}[];
 };
 
+/**
+ * The ssh command git should use to fetch as an account (`mod install --account <name>`), in the
+ * `GIT_SSH_COMMAND` format (run through the shell). Throws when the account cannot be used.
+ */
+export type GitSshResolver = (account: string) => Promise<string>;
+
 export type PluginHost = {
 	dataDir: string;
 	events: EventBus;
 	log: Logger;
 	// Absent in hosts older than the field.
 	build?: BuildInfo;
+	/** Lets the module that owns accounts give `mod install --account` its ssh command; the first one wins. */
+	registerGitSsh?: (resolve: GitSshResolver) => void;
 };
 
 export type ModulePlugin = (host: PluginHost) => Command[] | Promise<Command[]>;

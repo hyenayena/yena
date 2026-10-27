@@ -5,8 +5,8 @@ const subcommands: Subcommand[] = [
 	{
 		name: 'install',
 		aliases: ['i'],
-		usage: 'mod install [source]…',
-		description: 'Install modules (no arguments: restore all from yena-modules.json)',
+		usage: 'mod install [--account <name>] [source]…',
+		description: 'Install modules (no sources: restore all from yena-modules.json); --account fetches private ones with that account\'s SSH key',
 		agent: 'confirm',
 	},
 	{
@@ -42,7 +42,29 @@ const notes = [
 	'Sources: core (official module by name), user/repo, gitlab:user/repo, https://host/repo.git, ./folder',
 	'Several at once: mod install core dev task',
 	'Version: append #branch, #tag or #commit, e.g. core#v1.2',
+	'Private module: mod install --account <name> owner/repo (over ssh with that account; kept in the lock file for restores and updates)',
 ];
+
+/** Splits `--account <name>` (once, anywhere) off the sources. */
+export function parseInstallArgs(args: string[]): {specs: string[]; account?: string} {
+	const specs: string[] = [];
+	let account: string | undefined;
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i]!;
+		if (arg === '--account') {
+			const name = args[++i];
+			if (name === undefined || name.startsWith('-')) throw new Error('--account needs an account name');
+			if (account !== undefined) throw new Error('--account is given more than once');
+			account = name;
+		} else if (arg.startsWith('-')) {
+			throw new Error(`Unknown option "${arg}". See mod help install`);
+		} else {
+			specs.push(arg);
+		}
+	}
+	if (account !== undefined && specs.length === 0) throw new Error('--account needs the modules to install');
+	return {specs, ...(account !== undefined && {account})};
+}
 
 const find = (name: string) => subcommands.find(s => s.name === name || s.aliases?.includes(name));
 
@@ -56,8 +78,10 @@ export const modCommand: Command = {
 		const log = ctx.print;
 		switch (sub) {
 			case 'install':
-			case 'i':
-				return install(args, log);
+			case 'i': {
+				const {specs, account} = parseInstallArgs(args);
+				return install(specs, log, account === undefined ? {} : {account});
+			}
 			case 'update':
 			case 'up':
 				return update(args, log);

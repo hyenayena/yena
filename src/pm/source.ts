@@ -2,7 +2,9 @@ import path from 'node:path';
 
 export type Source = {kind: 'git'; url: string; ref?: string} | {kind: 'path'; path: string};
 
-export const OFFICIAL_ORG = 'git@github.com:hyenayena';
+// Official modules are fetched over https, which needs no key; with an account (a private one) over ssh.
+export const OFFICIAL_ORG = 'https://github.com/hyenayena';
+export const OFFICIAL_ORG_SSH = 'git@github.com:hyenayena';
 
 const officialName = /^[a-z0-9][a-z0-9._-]*$/;
 
@@ -18,7 +20,7 @@ const hosts: Record<string, string> = {
 	bitbucket: 'https://bitbucket.org',
 };
 
-export function parseSource(spec: string, baseDir: string): Source {
+export function parseSource(spec: string, baseDir: string, {ssh = false}: {ssh?: boolean} = {}): Source {
 	if (/^(\.{1,2}|~)?\//.test(spec)) {
 		const home = process.env.HOME ?? '';
 		return {kind: 'path', path: path.resolve(baseDir, spec.replace(/^~(?=\/)/, home))};
@@ -29,7 +31,7 @@ export function parseSource(spec: string, baseDir: string): Source {
 	const ref = hash === -1 ? undefined : spec.slice(hash + 1) || undefined;
 
 	const official = officialModuleName(spec);
-	if (official) return {kind: 'git', url: `${OFFICIAL_ORG}/${official}.git`, ref};
+	if (official) return {kind: 'git', url: `${ssh ? OFFICIAL_ORG_SSH : OFFICIAL_ORG}/${official}.git`, ref};
 
 	const short = /^(?:(github|gitlab|bitbucket):)?([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(target);
 	if (short) {
