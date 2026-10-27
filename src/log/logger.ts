@@ -3,7 +3,7 @@ import type {LogFields, Logger} from '../api.js';
 import {escapes} from '../pm/paths.js';
 import {LEVELS, readLogConfig, type LogLevel} from './config.js';
 import {noopLogger} from './noop.js';
-import {createRedactor} from './redact.js';
+import {createRedactor, type Redactor} from './redact.js';
 import {cleanText, escapeLine, MESSAGE_CAP, serializeFields, type Scrub} from './sanitize.js';
 import {openSink, type SinkIo} from './sink.js';
 
@@ -28,7 +28,18 @@ export type HostLoggerOptions = {
 const MAX_RECORD_BYTES = 8 * 1024;
 const SCOPE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-const disabled = (): HostLogger => ({...noopLogger, close() {}, file: ''});
+// Redaction keeps working with logging off: modules use it for output, not only for the log.
+const disabled = (redactor: Redactor): HostLogger => {
+	const logger: HostLogger = {
+		...noopLogger,
+		child: () => logger,
+		addRedactor: redact => redactor.add(redact),
+		redact: text => redactor.apply(text),
+		close() {},
+		file: '',
+	};
+	return logger;
+};
 
 export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 	const onWarn = opts.onWarn ?? ((message: string) => process.stderr.write(`${message}\n`));
@@ -40,19 +51,19 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 		}
 	};
 
+	const redactor = createRedactor();
 	const config = readLogConfig(opts.env);
 	for (const message of config.warnings) warn(message);
-	if (!config.enabled) return disabled();
+	if (!config.enabled) return disabled(redactor);
 
 	const dir = path.resolve(opts.dir ?? path.join(opts.root, 'logs'));
 	if (escapes(path.resolve(opts.root), dir)) {
 		warn('Warning: cannot write the log file (EPERM); logging is disabled');
-		return disabled();
+		return disabled(redactor);
 	}
 
 	const now = opts.now ?? (() => new Date());
 	const pid = opts.pid ?? process.pid;
-	const redactor = createRedactor();
 	const threshold = LEVELS.indexOf(config.level);
 
 	const render = (level: LogLevel, scope: string, message: unknown, fields?: LogFields): string => {
@@ -84,7 +95,7 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 	} catch (err) {
 		const code = (err as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
 		warn(`Warning: cannot write the log file (${code}); logging is disabled`);
-		return disabled();
+		return disabled(redactor);
 	}
 	const active = sink;
 
@@ -113,6 +124,7 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 					// Ignore.
 				}
 			},
+			redact: text => redactor.apply(text),
 		};
 	};
 

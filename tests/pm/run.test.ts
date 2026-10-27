@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import type {Logger} from '../../src/api.js';
-import {run} from '../../src/pm/run.js';
+import {run, scrubbedEnv} from '../../src/pm/run.js';
 
 type Rec = {level: string; msg: string; fields?: Record<string, unknown>};
 
@@ -59,4 +59,20 @@ test('output lines go to debug only, and the Log callback still receives them', 
 
 test('run without trace behaves as before', async () => {
 	assert.equal((await run(process.execPath, script(`process.stdout.write('ok')`))).trim(), 'ok');
+});
+
+test('scrubEnv leaves credentials and the ssh-agent out of the child', async () => {
+	process.env.YENA_TEST_API_KEY = 'k';
+	process.env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK ?? '/tmp/agent.sock';
+	process.env.YENA_TEST_PLAIN = 'plain';
+	try {
+		const out = await run('echo "${YENA_TEST_API_KEY:-none} ${SSH_AUTH_SOCK:-none} ${YENA_TEST_PLAIN:-none}"', [], {shell: true, scrubEnv: true});
+		assert.equal(out.trim(), 'none none plain');
+		const full = await run('echo "${YENA_TEST_API_KEY:-none}"', [], {shell: true});
+		assert.equal(full.trim(), 'k');
+	} finally {
+		delete process.env.YENA_TEST_API_KEY;
+		delete process.env.YENA_TEST_PLAIN;
+	}
+	assert.deepEqual(Object.keys(scrubbedEnv({PATH: '/bin', MIRROR: 'https://u:p@h/x', GIT_URL: 'git@github.com:a/b', CLAUDE_CODE_OAUTH_TOKEN: 't'})), ['PATH', 'GIT_URL']);
 });

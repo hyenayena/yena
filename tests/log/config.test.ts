@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {createHostLogger, noopLogger, readLogConfig} from '../../src/log/index.js';
+import {existsSync} from 'node:fs';
+import path from 'node:path';
+import {createHostLogger, readLogConfig} from '../../src/log/index.js';
 import {tmp} from './helpers.js';
 
 test('defaults to enabled at info', () => {
@@ -34,6 +36,8 @@ test('YENA_LOG=off yields a logger that writes nothing', () => {
 	log.info('x');
 	log.child('a').error('y');
 	assert.equal(log.file, '');
-	assert.equal(log.child('a'), noopLogger);
+	assert.ok(!existsSync(path.join(root, 'logs')));
+	// Not the shared noop: its children keep the redactors registered on it.
+	assert.equal(log.child('a').child('b').redact!('x'), 'x');
 	log.close();
 });

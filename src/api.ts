@@ -168,6 +168,11 @@ export type Logger = {
 	debug(message: string, fields?: LogFields): void;
 	child(scope: string): Logger;
 	addRedactor(redact: (text: string) => string): void;
+	/**
+	 * Applies every registered redactor and the built-in secret patterns, as the log does, for text a
+	 * module shows or stores (command output). Works with logging off. Absent in hosts older than the field.
+	 */
+	redact?(text: string): string;
 };
 
 export type Yena = {

@@ -120,7 +120,7 @@ async function installOne(spec: string, s: Session, pinCommit?: string): Promise
 				const started = Date.now();
 				trace.info('install script started', {module: manifest.name});
 				try {
-					await run(manifest.install, [], {cwd: target, shell: true, log: s.log, trace});
+					await run(manifest.install, [], {cwd: target, shell: true, log: s.log, trace, scrubEnv: true});
 				} finally {
 					trace.info('install script finished', {module: manifest.name, ms: Date.now() - started});
 				}

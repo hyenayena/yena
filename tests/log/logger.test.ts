@@ -55,3 +55,16 @@ test('the logger never throws into callers', () => {
 	assert.doesNotThrow(() => logger.child(null as never).info('x'));
 	assert.doesNotThrow(() => logger.addRedactor(null as never));
 });
+
+test('redact applies registered redactors and the built-in patterns, also with logging off', async () => {
+	const {noopLogger} = await import('../../src/log/noop.js');
+	const value = 'my-own-value-123456';
+	for (const env of [{}, {YENA_LOG: 'off'}]) {
+		const {logger} = setup({env});
+		logger.child('m').addRedactor(t => t.split(value).join('[x]'));
+		const out = logger.child('other').redact!(`a ${value} b ghp_${'a'.repeat(36)} c`);
+		assert.equal(out, 'a [x] b [redacted] c', JSON.stringify(env));
+	}
+	assert.equal(noopLogger.redact!(`k ghp_${'b'.repeat(36)}`), 'k [redacted]');
+	assert.equal(noopLogger.redact!('plain text'), 'plain text');
+});
