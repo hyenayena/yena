@@ -11,8 +11,9 @@ RUN printf '%s\n' \
 	> /etc/ssh/ssh_known_hosts
 # The account module's ssh config: git in a repository that uses an account signs through that account's
 # ssh-agent, also inside the chat's Bash sandbox, whose own GIT_SSH_COMMAND bypasses core.sshCommand
-# (modules/account src/agent.ts). The file is in YENA_DATA, which the sandbox cannot write.
-RUN printf 'Include /data/account/ssh_config\n' > /etc/ssh/ssh_config.d/yena-account.conf
+# (modules/account src/agent.ts). The file is in YENA_DATA, which the sandbox cannot write. It goes into the
+# main config: the sandbox hides /etc/ssh/ssh_config.d (Claude Code masks that folder, not the main file).
+RUN printf '\nInclude /data/account/ssh_config\n' >> /etc/ssh/ssh_config
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
