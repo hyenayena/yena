@@ -6,6 +6,10 @@ services:
     working_dir: /app
     # /app is the image: even root cannot change it. Writable places are the mounts and tmpfs below.
     read_only: true
+    # Docker's default seccomp profile plus user namespaces for bubblewrap, the chat's Bash sandbox (SEC-12).
+    # The path is relative to this folder: the yena script runs compose from here.
+    security_opt:
+      - seccomp=./seccomp.json
     volumes:
       - ./.yena:/data
       # Default: the folder holding this checkout, with the other projects next to it.

@@ -1,6 +1,7 @@
 FROM node:24-alpine
-# git (+ ssh for git@ URLs) is used by `mod install` to download modules
-RUN apk add --no-cache git openssh-client bash ripgrep
+# git (+ ssh for git@ URLs) is used by `mod install` to download modules; bubblewrap and socat run the
+# chat's Bash in its sandbox (modules/claude src/chat/sandbox.ts)
+RUN apk add --no-cache git openssh-client bash ripgrep bubblewrap socat
 # GitHub's published host keys (docs.github.com, "GitHub's SSH key fingerprints"), so ssh to github.com is
 # verified on a fresh container without mounting the host's known_hosts. Rebuild the image if GitHub rotates them.
 RUN printf '%s\n' \
