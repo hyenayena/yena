@@ -18,15 +18,15 @@ async function source(name: string) {
 
 test('install takes several sources at once and locks each', async () => {
 	await install([await source('one'), await source('two')], () => {});
-	const lock = JSON.parse(await readFile(path.join(home, 'yena-modules.json'), 'utf8'));
+	const lock = JSON.parse(await readFile(path.join(home, 'data', 'host', 'yena-modules.json'), 'utf8'));
 	assert.deepEqual(Object.keys(lock.modules), ['one', 'two']);
 });
 
 test('install refuses to replace a module that is a git checkout', async () => {
 	const src = await source('dev');
 	await install([src], () => {});
-	await mkdir(path.join(home, 'modules', 'dev', '.git'));
-	await writeFile(path.join(home, 'modules', 'dev', 'work.txt'), 'mine');
+	await mkdir(path.join(home, 'data', 'host', 'modules', 'dev', '.git'));
+	await writeFile(path.join(home, 'data', 'host', 'modules', 'dev', 'work.txt'), 'mine');
 	await assert.rejects(install([src], () => {}), /modules\/dev is a git checkout/);
-	assert.equal(await readFile(path.join(home, 'modules', 'dev', 'work.txt'), 'utf8'), 'mine');
+	assert.equal(await readFile(path.join(home, 'data', 'host', 'modules', 'dev', 'work.txt'), 'utf8'), 'mine');
 });

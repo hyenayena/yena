@@ -10,7 +10,10 @@ import {fileURLToPath} from 'node:url';
 const script = fileURLToPath(new URL('../yena', import.meta.url));
 const END = '--end--';
 const STATUS_ENV = ['-e', 'YENA_STATUS_DIR=/tmp/yena-status'];
-const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', ...STATUS_ENV, '-i', 'yena'];
+const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-i', 'yena'];
+// install, typecheck, test and compile run in the working copy, not in the read-only image at /app.
+const WORK_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
+const WORK = new Set(['install', 'typecheck', 'test', 'compile']);
 const PS = ['ps', '-q', '--filter', 'name=^yena$'];
 const UP = ['compose', 'up', '-d'];
 
@@ -61,7 +64,7 @@ const DEFAULT_CATALOG = 'mod\tManage modules\nmod list\tList modules\nmod instal
 
 async function makeFixture(opts: {claude?: boolean; name?: string} = {}) {
 	const root = await realpath(await mkdtemp(path.join(tmpdir(), 'yena-script-')));
-	const dir = path.join(root, opts.name ?? 'repo');
+	const dir = path.join(root, opts.name ?? 'yena');
 	const bin = path.join(root, 'bin');
 	await mkdir(dir);
 	await mkdir(bin);
@@ -180,7 +183,7 @@ for (const [cmd, expected] of EXEC) {
 		const fx = await makeFixture();
 		const r = run(fx, [cmd]);
 		assert.equal(r.status, 0, r.stderr);
-		assert.deepEqual(untrack(await argsOf(fx)), [PS, [...EXEC_PREFIX, ...expected], ...(TRACKED.has(cmd) ? [STOP] : [])]);
+		assert.deepEqual(untrack(await argsOf(fx)), [PS, [...(WORK.has(cmd) ? WORK_PREFIX : EXEC_PREFIX), ...expected], ...(TRACKED.has(cmd) ? [STOP] : [])]);
 	});
 }
 
@@ -202,7 +205,7 @@ test('yena hands text the app copies to the host clipboard and stops watching at
 	const r = run(fx, ['yena'], {YENA_CLIPBOARD: '', STUB_CLIP: 'copied text'});
 	assert.equal(r.status, 0, r.stderr);
 	const exec = (await argsOf(fx))[1]!;
-	assert.deepEqual(exec.slice(0, 9), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
+	assert.deepEqual(exec.slice(0, 11), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
 	assert.equal(await readFile(clipLog, 'utf8'), 'copied text');
 	assert.equal(existsSync(path.join(fx.dir, '.yena', '.clipboard', '1.txt')), false, 'the file is deleted once copied');
 	// Without a copy command nothing is passed to the app.
@@ -330,7 +333,7 @@ test('runs the same under bash --posix', {skip: !existsSync('/bin/bash') && 'bas
 	const fx = await makeFixture();
 	const r = runAs(fx, '/bin/bash', ['--posix', path.join(fx.dir, 'yena'), 'test'], fx.elsewhere, {STUB_PS: ''});
 	assert.equal(r.status, 0, r.stderr);
-	assert.deepEqual(await argsOf(fx), [PS, UP, [...EXEC_PREFIX, 'npm', 'test']]);
+	assert.deepEqual(await argsOf(fx), [PS, UP, [...WORK_PREFIX, 'npm', 'test']]);
 });
 
 test('a failing docker compose up stops before the exec with its status', async () => {
@@ -487,7 +490,7 @@ test('hints work under bash --posix', {skip: !existsSync('/bin/bash') && 'bash i
 	const fx = await makeFixture();
 	const r = runAs(fx, '/bin/bash', ['--posix', path.join(fx.dir, 'yena'), 'install'], fx.elsewhere);
 	assert.equal(r.status, 0, r.stderr);
-	assert.match(r.stderr, /Dependencies installed\. \.\/yena typecheck and \.\/yena test check the host\./);
+	assert.match(r.stderr, /Dependencies installed in \/workplace\/yena\. \.\/yena typecheck and \.\/yena test check the host\./);
 	assert.equal(unk(fx, 'tset').stderr.includes('Did you mean the script command'), true);
 });
 
@@ -590,7 +593,7 @@ test('zsh registers the completion for yena and ./yena', {skip: !hasShell('zsh')
 	assert.equal(r.stdout.trim(), '_yena _yena 18');
 });
 
-const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', ...STATUS_ENV];
+const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV];
 const TSX = ['node_modules/.bin/tsx', 'src/cli.ts', '--run', '--'];
 const CATALOG_CALL = ['exec', '-e', 'YENA_LOG=off', 'yena', 'node_modules/.bin/tsx', 'src/cli.ts', '--catalog'];
 
@@ -905,4 +908,26 @@ test('zsh: a floating point SECONDS still memoises the catalog', {skip: !hasShel
 	const r = spawnSync('zsh', ['-fc', probe], {encoding: 'utf8', env: stubEnv(fx, {})});
 	assert.equal(r.status, 0, r.stderr);
 	assert.equal((await catalogCalls(fx)).length, 1);
+});
+
+test('a checkout in a folder not named yena inside the default workplace is refused before the container starts', async () => {
+	const fx = await makeFixture({name: 'yena-copy'});
+	const r = run(fx, ['up']);
+	assert.equal(r.status, 1);
+	assert.match(r.stderr, /folder named "yena-copy" inside the workplace, so the container would also show it as \/workplace\/yena-copy/);
+	assert.deepEqual(await calls(fx), []);
+});
+
+test('the folder check passes when YENA_WORKPLACE does not hold the checkout', async () => {
+	const fx = await makeFixture({name: 'yena-copy'});
+	const r = run(fx, ['up'], {YENA_WORKPLACE: fx.elsewhere});
+	assert.equal(r.status, 0, r.stderr);
+	assert.deepEqual((await calls(fx)).map(c => c.args), [UP]);
+});
+
+test('YENA_STABLE is passed into the container', async () => {
+	const fx = await makeFixture();
+	run(fx, ['yena'], {YENA_STABLE: '1'});
+	const start = (await argsOf(fx))[1]!;
+	assert.ok(start.includes('YENA_STABLE'));
 });

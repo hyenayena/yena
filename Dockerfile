@@ -11,5 +11,10 @@ RUN printf '%s\n' \
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
+# The host and the local module copies (see .dockerignore). The image's /app is read-only at runtime
+# (compose.yaml read_only); it changes only with ./yena build.
 COPY . .
+# dist/ for ./yena start; then modules: install scripts of the local copies, locked modules missing from
+# the context fetched over https (no keys at build time), and the record of what went in (yena-image.json).
+RUN npm run build && node --import tsx src/pm/bake.ts
 CMD ["npm", "run", "dev"]

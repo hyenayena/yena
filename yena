@@ -2,6 +2,8 @@
 set -eu
 
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+# The checkout inside the container (compose.yaml); /app is the read-only image.
+WORKCOPY=/workplace/yena
 cd -- "$dir"
 
 TABLE='help|Show the list of commands
@@ -82,7 +84,9 @@ usage() {
 		printf '  %s%-22s%s %s\n' "$on" "$name" "$off" "$desc"
 	done <<'ENVS'
 YENA_LOG_LEVEL=<level>|Log level of the app: error, warn, info (default) or debug
-YENA_LOG=on/off|Write logs/yena.log (on, the default) or not (off)
+YENA_LOG=on/off|Write the log, .yena/host/logs/yena.log (on, the default) or not (off)
+YENA_STABLE=1|Start the app from the image even in dev mode (mode dev)
+YENA_WORKPLACE=<dir>|Folder mounted as /workplace when the container is created (default: ..)
 YENA_CLIPBOARD=off|Do not copy text selected in the app to the host clipboard
 NO_COLOR|Set to any value to turn off colours in this script
 YENA_HINTS=off|Do not print the hint: lines this script writes to stderr
@@ -297,10 +301,25 @@ suggest() {
 	'
 }
 
+# The checkout is mounted at /workplace/yena with its .yena (the data, secrets included) masked there.
+# With YENA_WORKPLACE (default ..) holding the checkout under another folder name, it would show up a
+# second time, as /workplace/<name>, with .yena readable; refuse that instead of starting.
+check_checkout() {
+	name=${dir##*/}
+	[ "$name" = yena ] && return 0
+	workplace=$(CDPATH= cd -- "${YENA_WORKPLACE:-..}" 2>/dev/null && pwd -P) || return 0
+	parent=$(CDPATH= cd -- .. && pwd -P)
+	[ "$workplace" = "$parent" ] || return 0
+	printf 'Error: this checkout is in a folder named "%s" inside the workplace, so the container would also show it as /workplace/%s with .yena (its data) unmasked.\n' "$name" "$name" >&2
+	hint 'Rename the folder to yena, or set YENA_WORKPLACE to a folder that does not hold the checkout.'
+	exit 1
+}
+
 ensure_up() {
 	if docker ps -q --filter 'name=^yena$' | grep -q .; then
 		return 0
 	fi
+	check_checkout
 	hint 'The container is not running; starting it (docker compose up -d).'
 	up_status=0
 	docker compose up -d || up_status=$?
@@ -310,10 +329,15 @@ ensure_up() {
 	fi
 }
 
+# EXEC_DIR (set by install, typecheck, test, compile) runs the command in the working copy instead of /app.
 run_exec() {
 	tty=''
 	[ -t 0 ] && tty=-t
-	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
+	if [ -n "${EXEC_DIR:-}" ]; then
+		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e "YENA_STATUS_DIR=$STATUS_DIR" -w "$EXEC_DIR" -i $tty yena "$@"
+	else
+		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
+	fi
 }
 
 # compose_hinted <ok-hint> <fail-hint> <args>: docker compose, then the hint; keeps docker's exit status.
@@ -321,6 +345,7 @@ compose_hinted() {
 	ok=$1
 	bad=$2
 	shift 2
+	[ "$1" = up ] && check_checkout
 	status=0
 	docker compose "$@" || status=$?
 	finish "$status" "$ok" "$bad"
@@ -347,7 +372,8 @@ TRACK_RUN='mkdir -p /tmp/yena-exec && echo $$ > "$0" && "$@"; s=$?; rm -f "$0"; 
 # lines of the processes it stops before stopping them, keeps printable ASCII without backslashes (printf %b
 # expands them) and cuts them at 200.
 STATUS_DIR=/tmp/yena-status
-KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=$(ps -eo args= | grep -E -- "$pat" | grep -vc -- "tsx/dist/preflight"); report=""; if [ "$n" -gt 0 ]; then for p in $(pgrep -f -- "$pat"); do f="'"$STATUS_DIR"'/$p"; [ -f "$f" ] && report="$report  $(head -c 200 "$f" | tr -cd " -[]-~")\\n"; done; pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec "'"$STATUS_DIR"'"; echo "Stopped $n yena instance(s)."; printf "%b" "$report"'
+# One instance per app: a src/cli.ts whose parent is one too (tsx's inner node, a dev-mode child) is not counted again.
+KILL_ALL='pat="[s]rc/cli\.ts|[r]unner/main\.ts"; n=0; for p in $(pgrep -f -- "$pat"); do pp=$(cut -d" " -f4 /proc/$p/stat 2>/dev/null); case "$(tr "\0" " " </proc/$p/cmdline 2>/dev/null)" in *[s]rc/cli.ts*) tr "\0" " " </proc/"$pp"/cmdline 2>/dev/null | grep -q "[s]rc/cli\.ts" && continue ;; esac; n=$((n + 1)); done; report=""; if [ "$n" -gt 0 ]; then for p in $(pgrep -f -- "$pat"); do f="'"$STATUS_DIR"'/$p"; [ -f "$f" ] && report="$report  $(head -c 200 "$f" | tr -cd " -[]-~")\\n"; done; pkill -TERM -f -- "$pat"; i=0; while [ "$i" -lt 30 ] && pgrep -f -- "$pat" >/dev/null; do sleep 0.1; i=$((i + 1)); done; pkill -KILL -f -- "$pat" 2>/dev/null; fi; rm -rf /tmp/yena-exec "'"$STATUS_DIR"'"; echo "Stopped $n yena instance(s)."; printf "%b" "$report"'
 
 TRACK_STOP='p=$(cat "$0" 2>/dev/null) || exit 0; rm -f "$0"; kill -HUP -"$p" 2>/dev/null || kill -HUP "$p" 2>/dev/null; exit 0'
 
@@ -405,7 +431,7 @@ run_tracked() {
 	trap 'exit 129' HUP
 	trap 'exit 143' TERM
 	status=0
-	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
 	if [ "$status" -eq 2 ] && [ -n "${SUGGEST_FOR:-}" ]; then
 		likely=$(suggest "$SUGGEST_FOR" || true)
 		if [ -n "$likely" ]; then
@@ -482,10 +508,10 @@ case $cmd in
 	yena) FAIL_HINT=$APP_FAIL; ensure_up; run_tracked --clipboard npm run dev ;;
 	start) FAIL_HINT=$APP_FAIL; ensure_up; run_tracked --clipboard npm start ;;
 	sh) ensure_up; run_tracked sh ;;
-	install) exec_hinted 'Dependencies installed. ./yena typecheck and ./yena test check the host.' '' npm install ;;
-	typecheck) exec_hinted '' 'typecheck failed (exit @S).' npm run typecheck ;;
-	test) exec_hinted '' 'test failed (exit @S).' npm test ;;
-	compile) exec_hinted 'Compiled into dist/. ./yena start runs it.' '' npm run build ;;
+	install) EXEC_DIR=$WORKCOPY exec_hinted 'Dependencies installed in /workplace/yena. ./yena typecheck and ./yena test check the host.' '' npm install ;;
+	typecheck) EXEC_DIR=$WORKCOPY exec_hinted '' 'typecheck failed (exit @S).' npm run typecheck ;;
+	test) EXEC_DIR=$WORKCOPY exec_hinted '' 'test failed (exit @S).' npm test ;;
+	compile) EXEC_DIR=$WORKCOPY exec_hinted 'Compiled into /workplace/yena/dist (a build check; ./yena start runs the dist/ built into the image).' '' npm run build ;;
 	console)
 		FAIL_HINT='console command failed (exit @S)'
 		ensure_up

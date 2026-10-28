@@ -4,12 +4,22 @@ services:
     image: yena
     container_name: yena
     working_dir: /app
+    # /app is the image: even root cannot change it. Writable places are the mounts and tmpfs below.
+    read_only: true
     volumes:
-      - .:/app
-      - type: tmpfs
-        target: /app/.yena
       - ./.yena:/data
-      - ${YENA_WORKPLACE:-./workplace}:/workplace
+      # Default: the folder holding this checkout, with the other projects next to it.
+      - ${YENA_WORKPLACE:-..}:/workplace
+      - .:/workplace/yena
+      # The data (secrets included) is reachable only at /data, never through the checkout.
+      - type: tmpfs
+        target: /workplace/yena/.yena
+      - stage:/stage
+    tmpfs:
+      # Docker mounts tmpfs noexec by default; tests and tools run scripts they write here.
+      - /tmp:mode=1777,exec
+      # npm cache, Claude CLI cache; nothing there has to survive a restart.
+      - /root:mode=0700
     command: ["sleep", "infinity"]
     init: true
     environment:
@@ -17,3 +27,6 @@ services:
       - YENA_DATA=/data
       - ANTHROPIC_API_KEY
       - CLAUDE_CODE_OAUTH_TOKEN
+
+volumes:
+  stage:

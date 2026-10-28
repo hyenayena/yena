@@ -180,17 +180,25 @@ export type Logger = {
 	redact?(text: string): string;
 };
 
+/** Something the user should see when the UI starts (e.g. dev mode fell back to the image). Untrusted text. */
+export type StartupAlert = {text: string; detail?: string};
+
 export type Yena = {
 	commands: Command[];
 	dataDir: string;
 	events: EventBus;
 	log: Logger;
+	// Absent in hosts older than the field; older cores ignore it.
+	alerts?: StartupAlert[];
 };
 
 // What this yena run is made of: the host version and every installed module, sorted by name.
 export type BuildInfo = {
 	version: string;
 	modules: {name: string; version: string}[];
+	/** Where this process runs from: the image, or a working copy in dev mode (`mode dev`). */
+	/** `workCopy`: the configured working copy of the repo (`mode dev`, default `/workplace/yena`). */
+	root?: {mode: 'image' | 'dev'; path: string; workCopy?: string};
 };
 
 /**
@@ -199,12 +207,23 @@ export type BuildInfo = {
  */
 export type GitSshResolver = (account: string) => Promise<string>;
 
+/** The last time the dev root failed to start (dev mode, `mode dev`); sanitized and capped by the host. */
+export type DevFailure = {
+	at: string;
+	devRoot: string;
+	name: string;
+	message: string;
+	stack?: string;
+};
+
 export type PluginHost = {
 	dataDir: string;
 	events: EventBus;
 	log: Logger;
 	// Absent in hosts older than the field.
 	build?: BuildInfo;
+	/** The recorded dev start failure, kept until a dev start succeeds; undefined when there is none. */
+	devFailure?: () => Promise<DevFailure | undefined>;
 	/** Lets the module that owns accounts give `mod install --account` its ssh command; the first one wins. */
 	registerGitSsh?: (resolve: GitSshResolver) => void;
 };

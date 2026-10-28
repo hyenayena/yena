@@ -16,6 +16,9 @@ export type Manifest = {
 
 const NAME = /^[a-z0-9][a-z0-9._-]*$/;
 
+/** `host` is the host's own state directory in `YENA_DATA`, next to the modules' data directories. */
+export const RESERVED_NAMES: ReadonlySet<string> = new Set(['host']);
+
 export async function readManifest(dir: string): Promise<Manifest> {
 	const file = path.join(dir, MANIFEST_FILE);
 	let raw: string;
@@ -45,6 +48,7 @@ function validate(data: unknown): Manifest {
 	if (typeof m.name !== 'string' || !NAME.test(m.name)) {
 		fail('"name" is required: lowercase letters, digits, ".", "_" or "-"');
 	}
+	if (RESERVED_NAMES.has(m.name as string)) fail(`"name" "${m.name as string}" is reserved by yena`);
 	if (typeof m.version !== 'string' || !m.version) fail('"version" is required');
 
 	for (const key of ['description', 'runtime', 'entry', 'install', 'headless'] as const) {

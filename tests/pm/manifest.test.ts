@@ -19,3 +19,7 @@ test('headless is optional and read as a string', async () => {
 test('a non-string headless is rejected', async () => {
 	await assert.rejects(readManifest(await manifestWith({headless: 3})), /"headless" must be a string/);
 });
+
+test('the name "host" is reserved for the host state directory', async () => {
+	await assert.rejects(readManifest(await manifestWith({name: 'host'})), /"name" "host" is reserved by yena/);
+});

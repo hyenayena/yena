@@ -4,7 +4,5 @@ dist/
 .idea/
 *.log
 modules/
-logs/
-workplace/
 .env
 yena-modules.json

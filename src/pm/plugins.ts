@@ -1,5 +1,5 @@
 import {pathToFileURL} from 'node:url';
-import type {BuildInfo, Command, EventBus, GitSshResolver, Logger, ModulePlugin} from '../api.js';
+import type {BuildInfo, Command, DevFailure, EventBus, GitSshResolver, Logger, ModulePlugin} from '../api.js';
 import {noopLogger} from '../log/index.js';
 import {registerGitSsh} from './git-ssh.js';
 import type {Manifest} from './manifest.js';
@@ -13,6 +13,7 @@ export type LoadPluginsOptions = {
 	log: (line: string) => void;
 	logger?: Logger;
 	build?: BuildInfo;
+	devFailure?: () => Promise<DevFailure | undefined>;
 	importer?: (url: string) => Promise<unknown>;
 	timeoutMs?: number;
 };
@@ -66,6 +67,7 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 				events: opts.events,
 				log: logger.child(manifest.name),
 				...(opts.build && {build: opts.build}),
+				...(opts.devFailure && {devFailure: opts.devFailure}),
 				registerGitSsh: (resolve: GitSshResolver) => {
 					if (!registerGitSsh(resolve)) logger.warn('git ssh resolver ignored', {module: manifest.name});
 				},

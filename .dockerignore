@@ -1,8 +1,16 @@
-node_modules
+# Never into the image: data and secrets, environment files, build output, VCS metadata.
+.yena
+.env
+.env.*
+**/*.log
+logs
 dist
 .git
 .idea
-modules
-.yena
-logs
 workplace/
+node_modules
+# Module working copies go in without their repos and packages (bake reinstalls them).
+modules/*/.git
+modules/*/node_modules
+modules/.staging-*
+modules/.backup-*

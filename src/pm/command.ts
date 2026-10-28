@@ -1,26 +1,27 @@
 import type {Command, Subcommand} from '../api.js';
-import {install, list, remove, update} from './manager.js';
+import {readImageRecord} from './bake.js';
+import {install, list, overlayEnabled, remove, update, type ModuleStatus} from './manager.js';
 
 const subcommands: Subcommand[] = [
 	{
 		name: 'install',
 		aliases: ['i'],
 		usage: 'mod install [--account <name>] [source]…',
-		description: 'Install modules (no sources: restore all from yena-modules.json); --account fetches private ones with that account\'s SSH key',
+		description: 'Install modules (no sources: restore all from yena-modules.json); --account fetches private ones with that account\'s SSH key; with YENA_DATA they go to the overlay',
 		agent: 'confirm',
 	},
 	{
 		name: 'update',
 		aliases: ['up'],
 		usage: 'mod update [name]…',
-		description: 'Update modules to the latest version',
+		description: 'Update modules to the latest version (an image module gets a newer copy in the overlay)',
 		agent: 'confirm',
 	},
 	{
 		name: 'remove',
 		aliases: ['rm'],
 		usage: 'mod remove <name>…',
-		description: 'Remove modules',
+		description: 'Remove modules (only from the overlay; image modules leave with a rebuild)',
 		agent: 'confirm',
 	},
 	{
@@ -66,6 +67,21 @@ export function parseInstallArgs(args: string[]): {specs: string[]; account?: st
 	return {specs, ...(account !== undefined && {account})};
 }
 
+const STATE_FLAG: Record<ModuleStatus['state'], string> = {ok: '', missing: 'not downloaded', untracked: 'not in lock file', broken: 'broken'};
+
+/** `[overlay]`, `[image, not used: the overlay is newer]`, `[not downloaded]`…; origins only when there is an overlay. */
+export function statusTags(m: ModuleStatus, withOrigin = overlayEnabled): string {
+	const tags: string[] = [];
+	if (withOrigin) {
+		const loaded = m.state === 'ok' || m.state === 'untracked';
+		let origin: string = m.origin;
+		if (loaded && !m.active) origin += m.origin === 'overlay' ? ', skipped: the image is newer' : ', not used: the overlay is newer';
+		tags.push(origin);
+	}
+	if (STATE_FLAG[m.state]) tags.push(STATE_FLAG[m.state]);
+	return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
+}
+
 const find = (name: string) => subcommands.find(s => s.name === name || s.aliases?.includes(name));
 
 export const modCommand: Command = {
@@ -92,10 +108,11 @@ export const modCommand: Command = {
 			case 'ls': {
 				const modules = await list();
 				if (modules.length === 0) return log('No modules. Try: mod install user/repo');
+				const image = await readImageRecord();
+				if (image) log(`  Image built ${image.builtAt}`);
 				for (const m of modules) {
 					const version = m.version ? `@${m.version}` : '';
-					const flag = {ok: '', missing: ' [not downloaded]', untracked: ' [not in lock file]', broken: ' [broken]'}[m.state];
-					log(`  ${m.name}${version}${flag}${m.description ? ` — ${m.description}` : ''}`);
+					log(`  ${m.name}${version}${statusTags(m)}${m.description ? ` — ${m.description}` : ''}`);
 					if (m.source) log(`      ${m.source}${m.commit ? ` @ ${m.commit.slice(0, 7)}` : ''}`);
 					if (m.error) log(`      ${m.error}`);
 				}

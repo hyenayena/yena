@@ -41,7 +41,7 @@ test('install, broken manifest and remove log pm lifecycle records', async () =>
 	}
 	assert.ok(recs.some(r => r.msg === 'child exited' && r.fields?.code === 0));
 
-	await mkdir(path.join(home, 'modules', 'broken'));
+	await mkdir(path.join(home, 'modules', 'broken'), {recursive: true});
 	await writeFile(path.join(home, 'modules', 'broken', 'yena.json'), '{nope');
 	await installedModules();
 	const warn = recs.find(r => r.msg === 'module manifest unreadable');

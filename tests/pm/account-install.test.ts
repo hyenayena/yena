@@ -38,7 +38,7 @@ test('--account asks the resolver and keeps the account in the lock file', async
 	const dir = await repo('demo');
 	await install([`file://${dir}`], () => {}, {account: 'bot'});
 	assert.deepEqual(asked, ['bot']);
-	const lock = JSON.parse(await readFile(path.join(home, 'yena-modules.json'), 'utf8'));
+	const lock = JSON.parse(await readFile(path.join(home, 'data', 'host', 'yena-modules.json'), 'utf8'));
 	assert.equal(lock.modules.demo.account, 'bot');
 });
 
