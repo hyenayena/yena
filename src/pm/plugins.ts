@@ -1,5 +1,6 @@
 import {pathToFileURL} from 'node:url';
-import type {BuildInfo, Command, DevFailure, EventBus, GitSshResolver, Logger, ModulePlugin} from '../api.js';
+import type {BuildInfo, Command, CredentialProvider, DevFailure, EventBus, GitSshResolver, Logger, ModulePlugin} from '../api.js';
+import type {CredentialBroker} from '../credentials.js';
 import {noopLogger} from '../log/index.js';
 import {registerGitSsh} from './git-ssh.js';
 import type {Manifest} from './manifest.js';
@@ -14,6 +15,8 @@ export type LoadPluginsOptions = {
 	logger?: Logger;
 	build?: BuildInfo;
 	devFailure?: () => Promise<DevFailure | undefined>;
+	/** Absent: plugins get no `credentials` and no `registerCredentialProvider`. */
+	credentials?: CredentialBroker;
 	importer?: (url: string) => Promise<unknown>;
 	timeoutMs?: number;
 };
@@ -49,6 +52,7 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 	const taken = new Set(opts.host.commands.map(c => c.name));
 	const accepted: Command[] = [];
 	const logger = opts.logger ?? noopLogger;
+	const broker = opts.credentials;
 
 	const candidates = opts.modules
 		.filter(m => m.manifest.name !== CORE && m.manifest.runtime === 'node' && m.manifest.entry)
@@ -71,6 +75,12 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 				registerGitSsh: (resolve: GitSshResolver) => {
 					if (!registerGitSsh(resolve)) logger.warn('git ssh resolver ignored', {module: manifest.name});
 				},
+				...(broker && {
+					credentials: broker.handleFor(manifest.name, manifest.credentials ?? {}),
+					registerCredentialProvider: (provider: CredentialProvider) => {
+						if (!broker.register(provider, manifest.name)) logger.warn('credential provider ignored', {module: manifest.name});
+					},
+				}),
 			};
 			const commands = validate(await withTimeout(Promise.resolve().then(() => plugin(host)), timeoutMs));
 			for (const c of commands) {

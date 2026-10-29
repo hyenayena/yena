@@ -235,7 +235,8 @@ export type Yena = {
 // What this yena run is made of: the host version and every installed module, sorted by name.
 export type BuildInfo = {
 	version: string;
-	modules: {name: string; version: string}[];
+	/** `credentials`: the module's `yena.json` declaration; absent when it declares none (or in older hosts). */
+	modules: {name: string; version: string; credentials?: Record<string, CredentialAccess>}[];
 	/** Where this process runs from: the image, or a working copy in dev mode (`mode dev`). */
 	/** `workCopy`: the configured working copy of the repo (`mode dev`, default `/workplace/yena`). */
 	root?: {mode: 'image' | 'dev'; path: string; workCopy?: string};
@@ -256,6 +257,60 @@ export type DevFailure = {
 	stack?: string;
 };
 
+/** `write` includes read, create and remove. */
+export type CredentialAccess = 'read' | 'write';
+
+/** An account as the store shows it: public fields only; `secrets` names the secret fields that are set. */
+export type CredentialAccount = {
+	name: string;
+	kind: string;
+	fields: Record<string, string>;
+	secrets: string[];
+	disabled: boolean;
+	/** Required fields that are not set. */
+	missing: string[];
+};
+
+/** One declared kind of the calling module and what the user granted (absent: not granted). */
+export type CredentialGrant = {kind: string; declared: CredentialAccess; granted?: CredentialAccess};
+
+/**
+ * Who calls the store, filled in by the host: the module the handle was given to and that module's
+ * `yena.json` `credentials` declaration (frozen). A module cannot pass another identity.
+ */
+export type CredentialCaller = {module: string; declared: Readonly<Record<string, CredentialAccess>>};
+
+export type CredentialCreateInput = {name: string; kind: string; fields?: Record<string, string>};
+
+/**
+ * A module's channel to the credential store, bound by the host to that module. Values are for
+ * in-process use only: never print, log or hand them to an assistant, and register a redactor
+ * (`log.addRedactor`) for every value read. Access decisions belong to the store; every method
+ * except `available` throws when no store is installed.
+ */
+export type Credentials = {
+	/** A store (provider) is registered. */
+	available(): boolean;
+	grants(): Promise<CredentialGrant[]>;
+	list(kind?: string): Promise<CredentialAccount[]>;
+	/** undefined: the field is unset or the account disabled. */
+	read(account: string, field: string): Promise<string | undefined>;
+	/** `undefined` clears the field. */
+	write(account: string, field: string, value: string | undefined): Promise<void>;
+	create(input: CredentialCreateInput): Promise<CredentialAccount>;
+	remove(account: string): Promise<void>;
+};
+
+/** Implemented by the module that stores credentials; the host appends the verified `caller` to every call. */
+export type CredentialProvider = {
+	grants(caller: CredentialCaller): Promise<CredentialGrant[]>;
+	list(kind: string | undefined, caller: CredentialCaller): Promise<CredentialAccount[]>;
+	read(account: string, field: string, caller: CredentialCaller): Promise<string | undefined>;
+	write(account: string, field: string, value: string | undefined, caller: CredentialCaller): Promise<void>;
+	create(input: CredentialCreateInput, caller: CredentialCaller): Promise<CredentialAccount>;
+	remove(account: string, caller: CredentialCaller): Promise<void>;
+};
+
 export type PluginHost = {
 	dataDir: string;
 	events: EventBus;
@@ -266,6 +321,10 @@ export type PluginHost = {
 	devFailure?: () => Promise<DevFailure | undefined>;
 	/** Lets the module that owns accounts give `mod install --account` its ssh command; the first one wins. */
 	registerGitSsh?: (resolve: GitSshResolver) => void;
+	/** This module's credential channel. Absent in hosts older than the field. */
+	credentials?: Credentials;
+	/** Lets the module that stores credentials serve every module's `credentials`; the first one wins. */
+	registerCredentialProvider?: (provider: CredentialProvider) => void;
 };
 
 export type ModulePlugin = (host: PluginHost) => Command[] | Promise<Command[]>;

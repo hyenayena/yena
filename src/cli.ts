@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {register} from 'tsx/esm/api';
 import type {BuildInfo, HeadlessMain, Logger, ModuleMain, StartupAlert} from './api.js';
+import {createCredentialBroker} from './credentials.js';
 import {clearDevFailure, devLaunchTarget, publicDevFailure, errorFailure, isDevChild, reportReady, resetTerminal, runDevChild, writeDevFailure} from './dev-launch.js';
 import {createEventBus} from './events.js';
 import {createHostLogger, installProcessHooks, setHostLog} from './log/index.js';
@@ -76,12 +77,17 @@ async function buildInfo(modules: {manifest: Manifest}[]): Promise<BuildInfo> {
 		version: await hostVersion(),
 		root: await rootInfo(),
 		modules: modules
-			.map(m => ({name: m.manifest.name, version: m.manifest.version}))
+			.map(m => {
+				const credentials = m.manifest.credentials ?? {};
+				const declared = Object.keys(credentials).length > 0 && {credentials: {...credentials}};
+				return {name: m.manifest.name, version: m.manifest.version, ...declared};
+			})
 			.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
 	};
 }
 
 const logger = createHostLogger({root: stateDir, env: process.env});
+const credentials = createCredentialBroker();
 const hostCommands = [modCommand, await createModeCommand({stateDir, codeRoot: root, writable: process.env.YENA_DATA !== undefined})];
 setHostLog(logger);
 installProcessHooks(logger);
@@ -152,6 +158,7 @@ async function main() {
 		logger,
 		build: await buildInfo(modules),
 		devFailure: () => publicDevFailure(stateDir),
+		credentials,
 	});
 	logger.info('core loaded', {module: manifest.name, version: manifest.version});
 	await mod.default({
@@ -183,6 +190,7 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 		logger,
 		build: await buildInfo(modules),
 		devFailure: () => publicDevFailure(stateDir),
+		credentials,
 	});
 	const started = Date.now();
 	let status = 'ok';

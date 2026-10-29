@@ -100,3 +100,31 @@ test('--catalog without core exits 1 and does not install', async () => {
 	assert.doesNotMatch(r.stderr, /downloading/);
 	assert.equal(r.stdout, '');
 });
+
+test('plugins get the build with credential declarations and a channel to the registered store', async () => {
+	const home = await makeHome(`export default async yena => {
+	const {host} = yena.commands.find(c => c.name === 'probe');
+	console.log(JSON.stringify(host.build.modules));
+	console.log(JSON.stringify(await host.credentials.read('acc', 'token')));
+};`);
+	const add = async (name: string, source: string, extra: Record<string, unknown> = {}) => {
+		const dir = path.join(home, 'modules', name);
+		await mkdir(dir, {recursive: true});
+		await writeFile(path.join(dir, 'yena.json'), JSON.stringify({name, version: '0.1.0', runtime: 'node', entry: 'index.mjs', ...extra}));
+		await writeFile(path.join(dir, 'index.mjs'), source);
+	};
+	const store = `const p = {}; for (const op of ['grants', 'list', 'write', 'create', 'remove']) p[op] = async () => undefined;
+p.read = async (account, field, caller) => [account, field, caller];
+export default host => { host.registerCredentialProvider(p); return []; };`;
+	await add('account', store);
+	await add('probe', `export default host => [{name: 'probe', description: '', run() {}, host}];`, {credentials: {github: 'read'}});
+	const r = run(home, ['x']);
+	assert.equal(r.status, 0, r.stderr);
+	const [modules, read] = r.stdout.trimEnd().split('\n').map(line => JSON.parse(line) as unknown);
+	assert.deepEqual(modules, [
+		{name: 'account', version: '0.1.0'},
+		{name: 'core', version: '1.0.0'},
+		{name: 'probe', version: '0.1.0', credentials: {github: 'read'}},
+	]);
+	assert.deepEqual(read, ['acc', 'token', {module: 'probe', declared: {github: 'read'}}]);
+});

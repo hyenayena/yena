@@ -3,12 +3,13 @@ import {mkdir, mkdtemp, realpath, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {test} from 'node:test';
-import type {Command, Logger} from '../../src/api.js';
+import type {Command, Logger, PluginHost} from '../../src/api.js';
 import {createEventBus} from '../../src/events.js';
 import type {Manifest} from '../../src/pm/manifest.js';
 import {loadPlugins} from '../../src/pm/plugins.js';
+import {createCredentialBroker} from '../../src/credentials.js';
 
-type Spec = {name: string; source?: string; runtime?: string; entry?: string | null};
+type Spec = {name: string; source?: string; runtime?: string; entry?: string | null; credentials?: Record<string, string>};
 
 const cmd = (name: string) => `{name: '${name}', description: '', run() {}}`;
 const ok = (...names: string[]) => `export default () => [${names.map(cmd).join(', ')}];`;
@@ -23,7 +24,7 @@ async function setup(specs: Spec[], extra?: (base: string) => Promise<void>) {
 		const entry = spec.entry === null ? undefined : (spec.entry ?? 'index.mjs');
 		modules.push({
 			dir,
-			manifest: {name: spec.name, version: '1.0.0', runtime: spec.runtime ?? 'node', entry} as unknown as Manifest,
+			manifest: {name: spec.name, version: '1.0.0', runtime: spec.runtime ?? 'node', entry, credentials: spec.credentials} as unknown as Manifest,
 		});
 	}
 	await extra?.(base);
@@ -234,4 +235,45 @@ test('an old-style plugin that ignores log still loads without a logger option',
 	const {base, modules} = await setup([{name: 'a', source: `export default ({dataDir}) => [{name: 'old', description: '', run() {}}];`}]);
 	const {commands} = await load(modules, base);
 	assert.deepEqual(names(commands), ['old']);
+});
+
+const probeHost = (name: string) => `export default host => [{name: '${name}', description: '', run() {}, host}];`;
+const storeSource = (label: string) => `export default host => {
+	const op = name => async (...args) => { globalThis.__credCalls.push({store: '${label}', op: name, caller: args.at(-1)}); return name === 'read' ? '${label}' : []; };
+	host.registerCredentialProvider({grants: op('grants'), list: op('list'), read: op('read'), write: op('write'), create: op('create'), remove: op('remove')});
+	return [];
+};`;
+
+test('each plugin gets a credentials handle bound to its own name and declaration; the first provider wins', async () => {
+	const calls: {store: string; op: string; caller: unknown}[] = [];
+	(globalThis as {__credCalls?: unknown}).__credCalls = calls;
+	const {base, modules} = await setup([
+		{name: 'account', source: storeSource('account')},
+		{name: 'alpha', source: probeHost('alpha-cmd'), credentials: {github: 'read'}},
+		{name: 'beta', source: probeHost('beta-cmd')},
+		{name: 'zeta', source: storeSource('zeta')},
+	]);
+	const {logger, recs} = spyLogger();
+	const {commands} = await load(modules, base, {logger, credentials: createCredentialBroker()});
+	type Probe = {host: PluginHost};
+	const hostOf = (name: string) => (commands.find(c => c.name === name) as unknown as Probe).host;
+	assert.equal(hostOf('alpha-cmd').credentials?.available(), true);
+	assert.equal(await hostOf('alpha-cmd').credentials?.read('x', 'token'), 'account');
+	await hostOf('beta-cmd').credentials?.list();
+	assert.deepEqual(calls, [
+		{store: 'account', op: 'read', caller: {module: 'alpha', declared: {github: 'read'}}},
+		{store: 'account', op: 'list', caller: {module: 'beta', declared: {}}},
+	]);
+	const ignored = recs.find(r => r.msg === 'credential provider ignored');
+	assert.equal(ignored?.level, 'warn');
+	assert.deepEqual(ignored?.fields, {module: 'zeta'});
+	delete (globalThis as {__credCalls?: unknown}).__credCalls;
+});
+
+test('without a broker plugins get no credentials fields', async () => {
+	const {base, modules} = await setup([{name: 'a', source: probeHost('a-cmd')}]);
+	const {commands} = await load(modules, base);
+	const host = (commands[0] as unknown as {host: PluginHost}).host;
+	assert.equal('credentials' in host, false);
+	assert.equal('registerCredentialProvider' in host, false);
 });
