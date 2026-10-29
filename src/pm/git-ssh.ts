@@ -1,9 +1,7 @@
 import type {GitSshResolver} from '../api.js';
 
-// Set by the module that owns accounts while plugins load; `mod install --account` asks it.
 let resolver: GitSshResolver | undefined;
 
-/** Registers the resolver; false when another one is already set (it stays). */
 export function registerGitSsh(resolve: GitSshResolver): boolean {
 	if (resolver) return false;
 	resolver = resolve;
@@ -15,7 +13,6 @@ export async function gitSshFor(account: string): Promise<string> {
 	return resolver(account);
 }
 
-/** For tests. */
 export function resetGitSsh(): void {
 	resolver = undefined;
 }

@@ -10,7 +10,6 @@ test('control characters are escaped and the file has one line per record', () =
 	assert.equal(lines().length, payloads.length);
 	assert.equal(read().split('\n').length, payloads.length + 1);
 	assert.deepEqual(records().map(r => r.msg), payloads);
-	// eslint-disable-next-line no-control-regex
 	assert.ok(!/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/.test(read()));
 });
 

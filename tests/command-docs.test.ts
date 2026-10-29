@@ -8,8 +8,6 @@ import type {Command, EventBus, Logger, ModulePlugin, PluginHost} from '../src/a
 import {createModeCommand} from '../src/mode-command.js';
 import {modCommand} from '../src/pm/command.js';
 
-// Every command's descriptions, usages, argument and option docs pass core's lint (checkCommandDocs).
-
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODULES = path.join(ROOT, 'modules');
 const CORE = path.join(MODULES, 'core');

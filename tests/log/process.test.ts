@@ -45,7 +45,6 @@ for (const kind of ['throw', 'reject']) {
 		const rec = hooked.records.find(x => x.msg === 'uncaught')!;
 		assert.ok(rec, 'uncaught record');
 		assert.equal(rec.level, 'error');
-		// ESM top-level throws surface as rejections of the entry import.
 		assert.ok(['uncaughtException', 'unhandledRejection'].includes(rec.data.origin));
 		assert.match(rec.data.err.stack, /log-child/);
 		assert.ok(!JSON.stringify(rec).includes(SECRET));

@@ -46,7 +46,6 @@ const subcommands: Subcommand[] = [
 
 const USAGE = 'mod <subcommand>';
 
-/** Splits `--account <name>` (once, anywhere) off the sources. */
 export function parseInstallArgs(args: string[]): {specs: string[]; account?: string} {
 	const specs: string[] = [];
 	let account: string | undefined;
@@ -69,7 +68,6 @@ export function parseInstallArgs(args: string[]): {specs: string[]; account?: st
 
 const STATE_FLAG: Record<ModuleStatus['state'], string> = {ok: '', missing: 'not downloaded', untracked: 'not in lock file', broken: 'broken'};
 
-/** `[overlay]`, `[image, not used: the overlay is newer]`, `[not downloaded]`…; origins only when there is an overlay. */
 export function statusTags(m: ModuleStatus, withOrigin = overlayEnabled): string {
 	const tags: string[] = [];
 	if (withOrigin) {

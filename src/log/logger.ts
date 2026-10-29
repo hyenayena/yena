@@ -9,7 +9,6 @@ import {openSink, type SinkIo} from './sink.js';
 
 export type HostLogger = Logger & {
 	close(): void;
-	// Empty when logging is disabled.
 	readonly file: string;
 };
 
@@ -28,7 +27,6 @@ export type HostLoggerOptions = {
 const MAX_RECORD_BYTES = 8 * 1024;
 const SCOPE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-// Redaction keeps working with logging off: modules use it for output, not only for the log.
 const disabled = (redactor: Redactor): HostLogger => {
 	const logger: HostLogger = {
 		...noopLogger,
@@ -47,7 +45,6 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 		try {
 			onWarn(message);
 		} catch {
-			// The logger must not throw.
 		}
 	};
 
@@ -105,7 +102,6 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 				if (LEVELS.indexOf(level) > threshold) return;
 				active.write(render(level, scope || 'host', message, fields));
 			} catch {
-				// The logger must never throw into callers.
 			}
 		};
 		return {
@@ -121,7 +117,6 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 				try {
 					redactor.add(redact);
 				} catch {
-					// Ignore.
 				}
 			},
 			redact: text => redactor.apply(text),

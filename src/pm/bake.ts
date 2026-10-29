@@ -5,7 +5,6 @@ import {readManifest} from './manifest.js';
 import {install, modulesDir, root} from './manager.js';
 import {run, type Log} from './run.js';
 
-/** What went into the image (`/app/yena-image.json`), for `mod list`. */
 export type ImageRecord = {
 	builtAt: string;
 	modules: {name: string; version: string; from: 'local' | 'lock'; source?: string; commit?: string}[];
@@ -26,15 +25,9 @@ const exists = (p: string) =>
 		() => false,
 	);
 
-/**
- * Runs in `docker build`, without `YENA_DATA`, so the root's `modules/` is writable: the local module
- * copies came with the build context (no `.git`, no `node_modules`), so their install scripts run here;
- * modules the lock lists but the context lacks are fetched (https) and installed by the usual pipeline.
- */
 export async function bakeModules(log: Log): Promise<ImageRecord> {
 	if (process.env.YENA_DATA) throw new Error('bakeModules runs at image build time, without YENA_DATA');
 	const local = await subdirs(modulesDir);
-	// Missing modules first: their dependencies may be what a local copy's install script needs.
 	await install([], log);
 	if (!(await exists(path.join(modulesDir, 'core')))) await install(['core'], log);
 	for (const name of local) {

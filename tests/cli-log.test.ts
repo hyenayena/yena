@@ -77,7 +77,6 @@ test('a throwing core: Error line and exit code unchanged, fatal logged with a s
 test('a missing core fails the clone: Error line identical, fatal logged', async () => {
 	const on = await makeHome(null);
 	const off = await makeHome(null);
-	// Core is fetched over https: no network protocol may reach out from the test.
 	const env = {GIT_CONFIG_GLOBAL: '/dev/null', GIT_SSH_COMMAND: 'false', GIT_CONFIG_NOSYSTEM: '1', GIT_ALLOW_PROTOCOL: 'file'};
 	const a = runCli(on, env);
 	const b = runCli(off, {...env, YENA_LOG: 'off'});
@@ -123,7 +122,6 @@ test('with YENA_DATA nothing is written under the code root: the UI start and a 
 	await writeFile(path.join(core, 'headless.mjs'), HEADLESS);
 	const data = await realpath(await mkdtemp(path.join(tmpdir(), 'yena-cli-data-')));
 	const before = await snapshot(home);
-	// Read-only for real when the tests run as a regular user; as root (the container) the snapshot is the check.
 	await setWritable(home, false);
 	try {
 		const ui = runCli(home, {YENA_DATA: data});

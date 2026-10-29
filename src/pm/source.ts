@@ -2,13 +2,11 @@ import path from 'node:path';
 
 export type Source = {kind: 'git'; url: string; ref?: string} | {kind: 'path'; path: string};
 
-// Official modules are fetched over https, which needs no key; with an account (a private one) over ssh.
 export const OFFICIAL_ORG = 'https://github.com/hyenayena';
 export const OFFICIAL_ORG_SSH = 'git@github.com:hyenayena';
 
 const officialName = /^[a-z0-9][a-z0-9._-]*$/;
 
-/** The module name when `spec` is a bare official module name such as `core` or `core#v1`. */
 export function officialModuleName(spec: string): string | undefined {
 	const name = spec.split('#', 1)[0]!;
 	return officialName.test(name) && !name.endsWith('.git') ? name : undefined;

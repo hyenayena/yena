@@ -4,10 +4,6 @@ export type ModuleOrigin = 'image' | 'overlay';
 
 const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
-/**
- * Semver order: negative when `a` is older. A pre-release sorts before its release. Versions that are
- * not semver compare equal to anything, so the overlay copy wins (it was installed on purpose).
- */
 export function compareVersions(a: string, b: string): number {
 	const ma = SEMVER.exec(a.trim());
 	const mb = SEMVER.exec(b.trim());
@@ -46,7 +42,6 @@ function comparePre(a: string | undefined, b: string | undefined): number {
 
 export type Copy = {dir: string; manifest: Manifest};
 
-/** The newer version wins; the overlay wins on equal versions (it is the one installed at runtime). */
 export function pickCopy(image: Copy | undefined, overlay: Copy | undefined): {winner: Copy; origin: ModuleOrigin} | undefined {
 	if (!overlay) return image && {winner: image, origin: 'image'};
 	if (!image) return {winner: overlay, origin: 'overlay'};

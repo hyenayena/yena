@@ -27,7 +27,6 @@ const DEV_HEADLESS = `export default async (yena, req) => {
 	console.log('dev ran ' + req.args.join(' ') + ' home=' + process.env.YENA_HOME + ' cwd=' + process.cwd() + ' child=' + process.env.YENA_DEV_CHILD);
 };`;
 
-/** An image root, a data dir in dev mode, and a dev root that runs this repo's host with its own core. */
 async function setup(dev: {headless?: string; entry?: string}) {
 	const home = await temp('yena-img-');
 	const data = await temp('yena-data-');

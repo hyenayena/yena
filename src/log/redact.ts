@@ -12,7 +12,6 @@ const BUILTINS: ReadonlyArray<[RegExp, string | ((match: string, ...groups: stri
 	[/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{1,512}/gi, `$1 ${REDACTED}`],
 	[
 		/((?:token|secret|password|passwd|api[_-]?key|authorization|cookie)[A-Za-z0-9_-]{0,20})(["']?\s*[=:]\s*["']?)([^\r\n]{1,1024})/gi,
-		// Usage counters such as `inputTokens: 5` are metadata, not secrets.
 		(match, key, sep, value) => (/tokens$/i.test(key) && /^\d/.test(value) ? match : `${key}${sep}${REDACTED}`),
 	],
 	[
@@ -39,7 +38,6 @@ export function createRedactor(): Redactor {
 			for (const redact of registered) {
 				try {
 					const next = redact(out);
-					// Fail closed: a broken redactor must not let the text through.
 					if (typeof next !== 'string') return '[unredactable]';
 					out = next;
 				} catch {

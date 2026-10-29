@@ -2,7 +2,6 @@ import type {Logger} from '../api.js';
 
 let installed: {uninstall: () => void; setTarget: (l: Logger) => void} | undefined;
 
-// Only monitoring hooks: `uncaughtException`/`unhandledRejection` listeners would swallow the crash.
 export function installProcessHooks(logger: Logger): () => void {
 	if (installed) {
 		installed.setTarget(logger);
@@ -13,7 +12,6 @@ export function installProcessHooks(logger: Logger): () => void {
 		try {
 			fn();
 		} catch {
-			// Hooks must not alter process termination.
 		}
 	};
 

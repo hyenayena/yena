@@ -4,11 +4,8 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
 export type ModuleMap = {
-	/** Folders holding module folders (`<root>/modules`, the overlay). */
 	roots: string[];
-	/** Module name -> folder of the copy in use. */
 	winners: ReadonlyMap<string, string>;
-	/** Bare imports an overlay module cannot resolve are retried from here (the host's `node_modules`). */
 	hostRoot: string;
 	overlay?: string;
 };
@@ -21,7 +18,6 @@ const real = (p: string) => {
 	}
 };
 
-/** Node reports module URLs by real path, so the map is compared in real paths too. */
 export function realModuleMap(map: ModuleMap): ModuleMap {
 	return {
 		roots: map.roots.map(real),
@@ -33,10 +29,6 @@ export function realModuleMap(map: ModuleMap): ModuleMap {
 
 const under = (file: string, dir: string) => file.startsWith(dir + path.sep);
 
-/**
- * `<root>/<name>/<rest>` under any module root -> `<winner of name>/<rest>`, or undefined when the
- * path is outside the roots, names an unknown module or already points at the winner.
- */
 export function mapModulePath(file: string, map: ModuleMap): string | undefined {
 	for (const root of map.roots) {
 		if (!under(file, root)) continue;
@@ -76,7 +68,6 @@ export function resolveAcrossRoots(specifier: string, context: ResolveHookContex
 			return next(specifier, context);
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			// The hook also sees require() calls, which fail with the CommonJS code.
 			if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') throw error;
 			return next(specifier, {...context, parentURL: pathToFileURL(map.hostRoot + path.sep).href});
 		}
@@ -84,13 +75,6 @@ export function resolveAcrossRoots(specifier: string, context: ResolveHookContex
 	return next(specifier, context);
 }
 
-/**
- * Modules import each other by relative paths into one shared `modules/` folder and find react/ink
- * by walking up to the host's `node_modules`. With modules split between the image and the overlay,
- * this hook keeps both working and makes every module load from exactly one copy (singletons such as
- * core's kit and React context depend on that). Registered after tsx, so it runs first and tsx still
- * maps `.js` to `.ts` on the rewritten URL.
- */
 export function registerModuleHooks(map: ModuleMap): void {
 	const resolved = realModuleMap(map);
 	registerHooks({resolve: (specifier, context, next) => resolveAcrossRoots(specifier, context, next, resolved)});

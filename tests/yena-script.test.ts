@@ -11,7 +11,6 @@ const script = fileURLToPath(new URL('../yena', import.meta.url));
 const END = '--end--';
 const STATUS_ENV = ['-e', 'YENA_STATUS_DIR=/tmp/yena-status'];
 const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-i', 'yena'];
-// install, typecheck, test and compile run in the working copy, not in the read-only image at /app.
 const WORK_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
 const WORK = new Set(['install', 'typecheck', 'test', 'compile']);
 const PS = ['ps', '-q', '--filter', 'name=^yena$'];
@@ -43,7 +42,6 @@ type Call = {cwd: string; args: string[]};
 
 const STOP = ['stop', 'mark'];
 
-// Long interactive commands run in a wrapper that marks their pid, and the script stops what is still marked on exit.
 const TRACKED = new Set(['yena', 'start', 'sh']);
 function untrack(all: string[][]): string[][] {
 	const out: string[][] = [];
@@ -58,7 +56,6 @@ function untrack(all: string[][]): string[][] {
 	}
 	return out;
 }
-
 
 const DEFAULT_CATALOG = 'mod\tManage modules\nmod list\tList modules\nmod install\tInstall a module\nscheduler\tSchedule lines\nclaude\tClaude chat\nclaude sessions\tList sessions\n';
 
@@ -96,7 +93,6 @@ function runAs(fx: Fixture, file: string, argv: string[], cwd: string, extra: Re
 	delete env.STUB_CATALOG_FAIL;
 	delete env.STUB_CATALOG_SLEEP;
 	env.STUB_CATALOG = DEFAULT_CATALOG;
-	// The host's copy command (pbcopy) is used only by the tests that ask for it.
 	env.YENA_CLIPBOARD = 'off';
 	Object.assign(env, extra);
 	env.PATH = pathVar ?? `${fx.bin}:${process.env.PATH ?? ''}`;
@@ -122,7 +118,6 @@ async function calls(fx: Fixture): Promise<Call[]> {
 const withoutCatalog = async (fx: Fixture) => (await calls(fx)).filter(c => !c.args.includes('--catalog'));
 const argsOf = async (fx: Fixture) => (await calls(fx)).map(c => c.args);
 
-// 'npm run test' and 'npm test' run the same script
 const sameScript = (args: string[][]) => args.map(a => (a.slice(-3).join(' ') === 'npm run test' ? [...a.slice(0, -3), 'npm', 'test'] : a));
 
 test('the script passes a POSIX sh syntax check', () => {
@@ -208,7 +203,6 @@ test('yena hands text the app copies to the host clipboard and stops watching at
 	assert.deepEqual(exec.slice(0, 11), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
 	assert.equal(await readFile(clipLog, 'utf8'), 'copied text');
 	assert.equal(existsSync(path.join(fx.dir, '.yena', '.clipboard', '1.txt')), false, 'the file is deleted once copied');
-	// Without a copy command nothing is passed to the app.
 	const plain = await makeFixture();
 	assert.equal(run(plain, ['yena']).status, 0);
 	assert.equal((await argsOf(plain))[1]!.includes('YENA_CLIPBOARD_DIR=/data/.clipboard'), false);
@@ -423,7 +417,6 @@ test('a status of 128 or more prints no hint', async () => {
 	assert.equal(r.stderr, '');
 });
 
-// What the app does for an unknown word: exit 2 (the stub fails on the word itself).
 const unk = (fx: Fixture, word: string, extra: Record<string, string> = {}) => run(fx, [word], {STUB_EXIT: '2', STUB_FAIL_ON: word, ...extra});
 
 test('a forwarded word that the app rejects with exit 2 also gets script suggestions', async () => {
@@ -674,7 +667,6 @@ test('a console line gets a terminal only when stdin and stdout are both termina
 	const fx = await makeFixture();
 	const out = path.join(fx.dir, 'tty.out');
 	const env = {...process.env, STUB_LOG: fx.log, STUB_PS: 'abc', PATH: `${fx.bin}:${process.env.PATH ?? ''}`};
-	// stdin is a terminal (script), stdout goes to a file: no -t
 	spawnSync('script', ['-qc', `sh '${path.join(fx.dir, 'yena')}' mod list > '${out}'`, '/dev/null'], {env, encoding: 'utf8', timeout: 30_000, input: ''});
 	const c = consoleCall(await argsOf(fx));
 	assert.equal(c.head.includes('-t'), false);

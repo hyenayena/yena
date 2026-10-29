@@ -13,7 +13,6 @@ const KEY_CAP = 64;
 const MAX_DEPTH = 3;
 const MAX_ITEMS = 20;
 
-// Order matters: OSC/DCS-style strings and CSI must be consumed whole before the generic ESC fallback.
 const ESCAPES = new RegExp(
 	[
 		'\\u001b\\][^\\u0007\\u001b]*(?:\\u0007|\\u001b\\\\)?',
@@ -51,7 +50,6 @@ export function cleanText(scrub: Scrub, input: unknown, cap: number): string {
 
 const CONTROLS = new RegExp('[\\u0000-\\u0008\\u000b-\\u001f\\u007f]', 'g');
 
-// Text for the terminal: escape sequences and control characters removed, newlines kept.
 export function terminalText(input: unknown, cap: number): string {
 	return cleanText({redact: text => text, ctl: 0}, input, cap).replace(CONTROLS, '');
 }

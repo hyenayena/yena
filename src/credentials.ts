@@ -1,9 +1,7 @@
 import type {CredentialAccess, CredentialCaller, CredentialCreateInput, CredentialProvider, Credentials} from './api.js';
 
 export type CredentialBroker = {
-	/** First wins: false when a provider is already registered. */
 	register(provider: CredentialProvider, module: string): boolean;
-	/** The handle given to `module`; every call reaches the provider with this module as the caller. */
 	handleFor(module: string, declared: Record<string, CredentialAccess>): Credentials;
 };
 

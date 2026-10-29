@@ -4,7 +4,6 @@ import {checkDevRoot, readMode, runningMode, writeMode, type ModeState, type Roo
 export type ModeCommandOptions = {
 	stateDir: string;
 	codeRoot: string;
-	/** False without `YENA_DATA`: the state would land in the code root, which is read-only in the image. */
 	writable: boolean;
 };
 

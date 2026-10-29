@@ -37,7 +37,6 @@ test('YENA_LOG=off yields a logger that writes nothing', () => {
 	log.child('a').error('y');
 	assert.equal(log.file, '');
 	assert.ok(!existsSync(path.join(root, 'logs')));
-	// Not the shared noop: its children keep the redactors registered on it.
 	assert.equal(log.child('a').child('b').redact!('x'), 'x');
 	log.close();
 });

@@ -13,7 +13,6 @@ export type Manifest = {
 	install?: string;
 	headless?: string;
 	dependencies: Record<string, string>;
-	/** Credential kinds the module uses through `host.credentials`; `{}` when it declares none. */
 	credentials?: Record<string, CredentialAccess>;
 };
 
@@ -21,7 +20,6 @@ const NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const KIND = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const MAX_KINDS = 20;
 
-/** `host` is the host's own state directory in `YENA_DATA`, next to the modules' data directories. */
 export const RESERVED_NAMES: ReadonlySet<string> = new Set(['host']);
 
 export async function readManifest(dir: string): Promise<Manifest> {

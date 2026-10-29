@@ -6,9 +6,7 @@ import type {DevFailure as PublicDevFailure} from './api.js';
 import {terminalText} from './log/sanitize.js';
 import type {ModeState} from './mode.js';
 
-/** Set in the dev child: it reports ready over IPC, records an early failure and ignores the overlay. */
 export const DEV_CHILD_ENV = 'YENA_DEV_CHILD';
-/** Set on the host to start from the image whatever the mode says (a way out of a broken dev root). */
 export const STABLE_ENV = 'YENA_STABLE';
 const READY_MS_ENV = 'YENA_DEV_READY_MS';
 const DEFAULT_READY_MS = 60_000;
@@ -16,7 +14,6 @@ const FAILURE_FILE = 'dev-failure.json';
 
 export const isDevChild = (env: NodeJS.ProcessEnv): boolean => env[DEV_CHILD_ENV] === '1';
 
-/** The dev root to start instead of this process, or undefined to run here. */
 export function devLaunchTarget(env: NodeJS.ProcessEnv, codeRoot: string, state: ModeState): string | undefined {
 	if (state.mode !== 'dev' || isDevChild(env) || env[STABLE_ENV] || !env.YENA_DATA) return undefined;
 	return path.resolve(codeRoot) === path.resolve(state.devRoot) ? undefined : state.devRoot;
@@ -26,7 +23,6 @@ export type DevFailure = {
 	at: string;
 	devRoot: string;
 	pid?: number;
-	/** What went wrong, sanitized and capped: an error's class and message, or how the child ended. */
 	name: string;
 	message: string;
 	stack?: string;
@@ -50,7 +46,6 @@ export async function writeDevFailure(stateDir: string, failure: Omit<DevFailure
 	await rename(tmp, file);
 }
 
-/** The last early failure of the dev root; kept until a dev start succeeds (IMG-7's `fix` reads it). */
 export async function readDevFailure(stateDir: string): Promise<DevFailure | undefined> {
 	try {
 		const data = JSON.parse(await readFile(failureFile(stateDir), 'utf8')) as Partial<DevFailure>;
@@ -61,7 +56,6 @@ export async function readDevFailure(stateDir: string): Promise<DevFailure | und
 	}
 }
 
-/** What plugins see (`PluginHost.devFailure`): the record without the pid. */
 export async function publicDevFailure(stateDir: string): Promise<PublicDevFailure | undefined> {
 	const rec = await readDevFailure(stateDir);
 	if (!rec) return undefined;
@@ -75,7 +69,6 @@ export function errorFailure(error: unknown): Pick<DevFailure, 'name' | 'message
 	return {name: 'Error', message: String(error)};
 }
 
-/** In the dev child: tells the launcher the start went through and lets the IPC channel go. */
 export function reportReady(): void {
 	if (!process.send) return;
 	process.send({type: 'ready'});
@@ -83,9 +76,7 @@ export function reportReady(): void {
 }
 
 export type DevOutcome =
-	/** The child got ready and has ended, or this process was told to stop: the launcher exits with this status. */
 	| {kind: 'done'; code: number}
-	/** It did not get ready: the launcher falls back to the image. */
 	| {kind: 'failed'; reason: string};
 
 export type RunDevChildOptions = {
@@ -102,12 +93,6 @@ const statusOf = (code: number | null, signal: NodeJS.Signals | null): number =>
 const describeEnd = (code: number | null, signal: NodeJS.Signals | null): string =>
 	signal ? `ended by ${signal} before it was ready` : `exited with code ${code ?? 'unknown'} before it was ready`;
 
-/**
- * Starts the dev root's `src/cli.ts` with the same arguments and terminal, then waits. Before the ready
- * message any end is a failure (recorded unless the child recorded its own); after it the child owns the
- * run. Signals that end this process are passed on at any time; one that comes before ready means stop,
- * not a failed start.
- */
 export function runDevChild(opts: RunDevChildOptions): Promise<DevOutcome> {
 	const readyMs = Number(opts.env[READY_MS_ENV]) > 0 ? Number(opts.env[READY_MS_ENV]) : DEFAULT_READY_MS;
 	const child: ChildProcess = (opts.spawnChild ?? spawn)(process.execPath, ['--import', 'tsx', path.join(opts.devRoot, 'src', 'cli.ts'), ...opts.args], {
@@ -119,7 +104,6 @@ export function runDevChild(opts: RunDevChildOptions): Promise<DevOutcome> {
 	return new Promise(resolve => {
 		let ready = false;
 		let settled = false;
-		// The first reason wins: a timeout kills the child, and its exit must not overwrite why.
 		let failing = false;
 		let stopping: NodeJS.Signals | undefined;
 		const forward = (signal: NodeJS.Signals) => () => {
@@ -139,7 +123,6 @@ export function runDevChild(opts: RunDevChildOptions): Promise<DevOutcome> {
 		const fail = async (reason: string) => {
 			if (failing) return;
 			failing = true;
-			// Ctrl+C, `./yena kill` or a closed terminal during the start: stop, do not start the image.
 			if (stopping) {
 				settle({kind: 'done', code: statusOf(null, stopping)});
 				return;
@@ -173,13 +156,11 @@ export function runDevChild(opts: RunDevChildOptions): Promise<DevOutcome> {
 
 const ESC = String.fromCharCode(27);
 
-/** Undoes what a UI child may have left on the terminal: raw input, mouse reporting, the alternate screen, a hidden cursor. */
 export function resetTerminal(stdin: NodeJS.ReadStream = process.stdin, stdout: NodeJS.WriteStream = process.stdout): void {
 	if (stdin.isTTY) {
 		try {
 			stdin.setRawMode(false);
 		} catch {
-			// not a raw-capable stream
 		}
 	}
 	if (stdout.isTTY) {

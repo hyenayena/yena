@@ -29,7 +29,6 @@ const oneShot = runMode || catalogMode;
 
 const findCore = (modules: ResolvedModule[]) => modules.find(m => m.manifest.name === CORE);
 
-/** Core comes from the image; when it is missing it is installed (into the overlay with `YENA_DATA`). */
 async function ensureCore(logger: Logger): Promise<ResolvedModule[]> {
 	let {modules, skipped} = await resolveModules();
 	if (!findCore(modules)) {
@@ -57,7 +56,6 @@ async function ensureCore(logger: Logger): Promise<ResolvedModule[]> {
 	return modules;
 }
 
-// package.json sits one level above both src/cli.ts and dist/cli.js.
 async function hostVersion(): Promise<string> {
 	try {
 		const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {version?: unknown};
@@ -92,13 +90,10 @@ const hostCommands = [modCommand, await createModeCommand({stateDir, codeRoot: r
 setHostLog(logger);
 installProcessHooks(logger);
 
-// The host owns this path; modules (the claude policy) learn it here instead of building it.
 if (process.env.YENA_DATA) process.env.YENA_HOST_STATE = stateDir;
 
-// The marker is inherited by everything the dev child starts; only the launcher's direct child has its IPC channel.
 const devChild = isDevChild(process.env) && process.send !== undefined;
 let ready = false;
-/** In a dev child: the start went through, so the launcher will not fall back and the old failure goes. */
 async function markReady() {
 	if (!devChild || ready) return;
 	ready = true;
@@ -168,7 +163,6 @@ async function main() {
 		log: logger.child('core'),
 		...(alerts.length > 0 && {alerts}),
 	});
-	// Core's main returns once the first frame is drawn.
 	await markReady();
 }
 
@@ -213,7 +207,6 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 	}
 }
 
-// Plugins may leave timers or sockets open, so a one-shot run ends with an explicit exit.
 const finish = (code: number) => {
 	process.stdout.write('', () => process.exit(code));
 };
@@ -229,7 +222,6 @@ main().then(
 		const shown = terminalText(raw, 4 * 1024).split('\n').slice(0, 21);
 		console.error(`Error: ${shown.join('\n')}`);
 		const code = (error as {exitCode?: unknown} | null)?.exitCode === 2 ? 2 : 1;
-		// An unready dev child still holds the IPC channel open, so it would not end by itself.
 		if (oneShot || (devChild && !ready)) finish(code);
 		else process.exitCode = 1;
 	},

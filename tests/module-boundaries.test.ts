@@ -5,17 +5,8 @@ import path from 'node:path';
 import {after, describe, it} from 'node:test';
 import {fileURLToPath} from 'node:url';
 
-// The rules between modules (see "Module boundaries" in the md hub's CLAUDE.md):
-// - a module's code reaches outside itself only for host types (`import type` from src/api.ts) and for
-//   another module's public entry, and only from an adapter file (src/deps/*.ts; for core's kit also
-//   src/kit.ts and src/ui/kit.ts);
-// - a module reached by a static import is a declared dependency in yena.json, and every declared
-//   dependency is used; an optional dependency is loaded at runtime (import() of a URL) from an adapter;
-// - declared dependencies have no cycles, and public entries never load React or Ink.
-
 const PUBLIC: Record<string, string[]> = {core: ['src/kit/text.ts', 'src/kit/ui.ts']};
 const DEFAULT_PUBLIC = ['src/public.ts'];
-// Core's kit is UI on purpose; every other public entry is pure.
 const UI_PUBLIC = new Set(['core/src/kit/ui.ts']);
 const KIT_ADAPTERS = ['src/kit.ts', 'src/ui/kit.ts'];
 const HOST_TYPES = 'src/api.ts';
@@ -26,9 +17,7 @@ function refs(source: string): Ref[] {
 	const out: Ref[] = [];
 	const stat = /(?:^|\n)\s*(import|export)(\s+type\b)?[^'";]*?\bfrom\s*['"]([^'"]+)['"]|(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g;
 	for (const m of source.matchAll(stat)) out.push({spec: (m[3] ?? m[4]) as string, typeOnly: Boolean(m[2]), kind: 'static'});
-	// `import('x').Name` is a type annotation; `import('x')` alone (or `.then`) loads code.
 	for (const m of source.matchAll(/import\(\s*['"]([^'"]+)['"]\s*\)(\.[A-Z])?/g)) out.push({spec: m[1] as string, typeOnly: Boolean(m[2]), kind: 'dynamic'});
-	// URLs count only when they name code: a folder or a manifest is a location, not an import.
 	for (const m of source.matchAll(/new URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g)) {
 		if (/\.(ts|tsx|mts|js|mjs)$/.test(m[1] as string)) out.push({spec: m[1] as string, typeOnly: false, kind: 'url'});
 	}
@@ -107,7 +96,6 @@ export function checkModules(root: string): string[] {
 		}
 	}
 
-	// Cycles among declared dependencies.
 	const state = new Map<string, 'open' | 'done'>();
 	const visit = (n: string, trail: string[]): void => {
 		if (state.get(n) === 'done') return;
@@ -121,7 +109,6 @@ export function checkModules(root: string): string[] {
 	};
 	for (const n of names) visit(n, []);
 
-	// Public entries stay free of React and Ink, through everything they import.
 	for (const name of names) {
 		for (const entry of publicOf(name)) {
 			if (!existsSync(entry) || UI_PUBLIC.has(path.relative(modulesDir, entry))) continue;

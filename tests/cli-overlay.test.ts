@@ -38,7 +38,6 @@ const core = (version: string, origin: string) => ({
 
 async function makeHome() {
 	const home = await realpath(await mkdtemp(path.join(tmpdir(), 'yena-cli-overlay-')));
-	// Outside the root, as /data is outside /app: walking up from the overlay never reaches the host's node_modules.
 	const data = await realpath(await mkdtemp(path.join(tmpdir(), 'yena-cli-overlay-data-')));
 	const overlay = path.join(data, 'host', 'modules');
 	await files(path.join(home, 'node_modules', 'fakepkg'), {

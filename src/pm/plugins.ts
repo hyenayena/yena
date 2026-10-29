@@ -15,7 +15,6 @@ export type LoadPluginsOptions = {
 	logger?: Logger;
 	build?: BuildInfo;
 	devFailure?: () => Promise<DevFailure | undefined>;
-	/** Absent: plugins get no `credentials` and no `registerCredentialProvider`. */
 	credentials?: CredentialBroker;
 	importer?: (url: string) => Promise<unknown>;
 	timeoutMs?: number;

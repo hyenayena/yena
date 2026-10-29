@@ -9,21 +9,12 @@ import {run, type Log} from './run.js';
 import {officialModuleName, parseSource, type Source} from './source.js';
 
 export const root = process.env.YENA_HOME ?? process.cwd();
-/** The image's modules (read-only in the image; the only, writable source without `YENA_DATA`). */
 export const modulesDir = path.join(root, 'modules');
 export const dataDir = process.env.YENA_DATA ?? path.join(root, '.yena');
 export const stateDir = hostStateDir(process.env, root);
-/**
- * Modules installed at runtime (`mod install|update`); they shadow image modules of the same or an older
- * version. A dev run (`YENA_DEV_CHILD`, see `src/dev-launch.ts`) takes modules only from its working copy.
- */
 export const overlayDir: string | undefined =
 	process.env.YENA_DATA && process.env.YENA_DEV_CHILD !== '1' ? path.join(stateDir, 'modules') : undefined;
 
-/**
- * The host's runtime state (logs, the module overlay). The code root is read-only in the image, so with
- * `YENA_DATA` set nothing goes under it; bare runs without `YENA_DATA` keep the state in the root.
- */
 export function hostStateDir(env: NodeJS.ProcessEnv, codeRoot: string): string {
 	return env.YENA_DATA ? path.join(env.YENA_DATA, 'host') : codeRoot;
 }
@@ -44,7 +35,6 @@ type LockEntry = {
 	source: string;
 	version: string;
 	commit?: string;
-	/** The account whose key fetched it (a private module); restores and updates use it again. */
 	account?: string;
 };
 
@@ -88,7 +78,6 @@ async function fetchSource(src: Source, dest: string, log: Log, account?: string
 		return undefined;
 	}
 
-	// init + fetch works the same for a branch, a tag or a commit hash
 	await mkdir(dest, {recursive: true});
 	const trace = pmLog();
 	await run('git', ['init', '-q'], {cwd: dest, trace});
@@ -101,9 +90,7 @@ async function fetchSource(src: Source, dest: string, log: Log, account?: string
 }
 
 type Session = {
-	/** The lock of the folder installs go to (the overlay's, or the root's without `YENA_DATA`). */
 	lock: Lock;
-	/** The image's lock with an overlay; empty without one (then `lock` is the image's). */
 	image: Lock;
 	log: Log;
 	seen: Set<string>;
@@ -111,7 +98,6 @@ type Session = {
 
 const lockEntry = (s: Session, name: string) => s.lock.modules[name] ?? s.image.modules[name];
 
-/** Installed in either source. */
 async function present(name: string): Promise<boolean> {
 	return (await exists(path.join(installDir, name))) || (await exists(path.join(modulesDir, name)));
 }
@@ -119,11 +105,9 @@ async function present(name: string): Promise<boolean> {
 type InstallOneOptions = {
 	pinCommit?: string;
 	account?: string;
-	/** The commit of the copy in use: when the fetch gives the same commit, nothing is installed. */
 	current?: string;
 };
 
-/** Dependencies are fetched with the account of the module that needs them, unless the lock names another. */
 async function installOne(spec: string, s: Session, {pinCommit, account, current}: InstallOneOptions = {}): Promise<Manifest> {
 	const trace = pmLog();
 	const src = parseSource(spec, root, {ssh: account !== undefined});
@@ -146,7 +130,6 @@ async function installOne(spec: string, s: Session, {pinCommit, account, current
 			return manifest;
 		}
 
-		// Dependencies first, so the module's install script can rely on them
 		for (const [dep, depSpec] of Object.entries(manifest.dependencies)) {
 			if (s.seen.has(dep) || (await present(dep))) continue;
 			trace.info('installing dependency', {module: manifest.name, dependency: dep});
@@ -157,9 +140,7 @@ async function installOne(spec: string, s: Session, {pinCommit, account, current
 			}
 		}
 
-		// Keep the old version as a backup until the install script passes
 		const target = path.join(installDir, manifest.name);
-		// A module directory with its own .git is a working copy someone develops in; replacing it would lose their work
 		if (await exists(path.join(target, '.git'))) {
 			throw new Error(`modules/${manifest.name} is a git checkout; update it with git or remove it first`);
 		}
@@ -249,7 +230,6 @@ export async function install(specs: string[], log: Log, {account}: InstallOptio
 	log(restored ? `Modules restored: ${restored}` : 'All modules are already installed');
 }
 
-/** Image modules are updated by installing the newer copy into the overlay. */
 export async function update(names: string[], log: Log) {
 	const s = await session(log);
 	const known = {...s.image.modules, ...s.lock.modules};
@@ -318,10 +298,6 @@ async function readCopies(dir: string, origin: ModuleOrigin): Promise<Map<string
 	return copies;
 }
 
-/**
- * One copy per module name: the image's, the overlay's, or the newer of both (the overlay on equal
- * versions). `skipped` lists overlay copies that lost to a newer image copy.
- */
 export async function resolveModules(): Promise<{modules: ResolvedModule[]; skipped: SkippedModule[]}> {
 	const image = await readCopies(modulesDir, 'image');
 	const overlay = overlayDir === undefined ? new Map<string, Copy>() : await readCopies(overlayDir, 'overlay');
@@ -356,9 +332,7 @@ export type ModuleStatus = {
 	commit?: string;
 	state: 'ok' | 'missing' | 'untracked' | 'broken';
 	error?: string;
-	/** Where this copy lives; a module in both places gets a row for each. */
 	origin: ModuleOrigin;
-	/** This copy is the one loaded. */
 	active: boolean;
 };
 

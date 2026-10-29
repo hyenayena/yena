@@ -27,7 +27,6 @@ export type SinkOptions = {
 	maxBytes: number;
 	generations: number;
 	io?: Partial<SinkIo>;
-	// Called once, when records were dropped and writing works again.
 	dropNotice: (dropped: number) => string;
 };
 
@@ -38,7 +37,6 @@ function refuse(code: string, message: string): Error {
 	return Object.assign(new Error(message), {code});
 }
 
-// Throws when the sink cannot be opened safely; callers degrade to a no-op logger.
 export function openSink(opts: SinkOptions): Sink {
 	const io: SinkIo = {...fs, ...opts.io};
 	const {dir, maxBytes, generations} = opts;
@@ -66,13 +64,11 @@ export function openSink(opts: SinkOptions): Sink {
 			throw refuse('ENOTDIR', 'log directory is not a directory');
 		}
 
-		// lstat alone races; opening with O_NOFOLLOW|O_DIRECTORY proves the directory itself is not a symlink.
 		const dirFd = io.openSync(dir, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
 		try {
 			try {
 				io.fchmodSync(dirFd, DIR_MODE);
 			} catch {
-				// Bind-mounted filesystems may refuse chmod.
 			}
 		} finally {
 			io.closeSync(dirFd);
@@ -85,14 +81,12 @@ export function openSink(opts: SinkOptions): Sink {
 			try {
 				io.fchmodSync(newFd, FILE_MODE);
 			} catch {
-				// See above.
 			}
 			size = stat.size;
 		} catch (err) {
 			try {
 				io.closeSync(newFd);
 			} catch {
-				// Nothing more to do.
 			}
 			throw err;
 		}
@@ -128,12 +122,10 @@ export function openSink(opts: SinkOptions): Sink {
 				}
 				io.renameSync(file, gen(1));
 			} catch {
-				// Bounded growth matters more than keeping history.
 				try {
 					io.ftruncateSync(fd, 0);
 					size = 0;
 				} catch {
-					// Keep appending; nothing else can be done.
 				}
 				return;
 			}
@@ -144,7 +136,6 @@ export function openSink(opts: SinkOptions): Sink {
 		try {
 			io.closeSync(oldFd);
 		} catch {
-			// Already unusable.
 		}
 	};
 
@@ -166,7 +157,6 @@ export function openSink(opts: SinkOptions): Sink {
 		try {
 			rotate();
 		} catch {
-			// Keep the already open descriptor.
 		}
 	}
 
@@ -187,7 +177,6 @@ export function openSink(opts: SinkOptions): Sink {
 					dropped++;
 					return;
 				}
-				// Other writers share the file, so the local counter underestimates its size; rotate() re-checks with fstat.
 				rotate();
 			} catch {
 				dropped++;
@@ -199,7 +188,6 @@ export function openSink(opts: SinkOptions): Sink {
 			try {
 				io.closeSync(fd);
 			} catch {
-				// Nothing to recover.
 			}
 		},
 	};
