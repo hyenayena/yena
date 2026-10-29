@@ -99,6 +99,17 @@ test('the settings tab reads and saves the same state, and tells the running mod
 test('agent policy: show is safe, switching asks', async () => {
 	const cmd = await createModeCommand({stateDir: await temp('yena-mode-'), codeRoot: '/app', writable: true});
 	const policy = Object.fromEntries((cmd.subcommands ?? []).map(s => [s.name, s.agent]));
-	assert.deepEqual(policy, {show: 'safe', image: 'confirm', dev: 'confirm', help: 'safe'});
+	assert.deepEqual(policy, {show: 'safe', image: 'confirm', dev: 'confirm'});
 	assert.equal(cmd.agent, 'confirm');
+});
+
+test('mode help goes to core through ctx.showHelp, or prints the usage without it', async () => {
+	const cmd = await createModeCommand({stateDir: await temp('yena-mode-'), codeRoot: '/app', writable: true});
+	const paths: (string[] | undefined)[] = [];
+	const {ctx: base} = ctx();
+	await cmd.run(['help'], {...base, showHelp: (path?: string[]) => void paths.push(path)});
+	assert.deepEqual(paths, [undefined]);
+	const plain = ctx();
+	await cmd.run(['help'], plain.ctx);
+	assert.deepEqual(plain.lines, ['mode [subcommand]']);
 });

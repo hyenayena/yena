@@ -7,14 +7,24 @@ const subcommands: Subcommand[] = [
 		name: 'install',
 		aliases: ['i'],
 		usage: 'mod install [--account <name>] [source]…',
-		description: 'Install modules (no sources: restore all from yena-modules.json); --account fetches private ones with that account\'s SSH key; with YENA_DATA they go to the overlay',
+		description: 'Install modules (no sources: restore all from yena-modules.json)',
+		args: [{name: 'source', description: 'Module to install; the forms are in the notes'}],
+		options: [{name: '--account', value: '<name>', description: "Fetch private modules with this account's SSH key"}],
+		notes: [
+			'Sources: core (official module by name), user/repo, gitlab:user/repo, https://host/repo.git, ./folder',
+			'Several at once: mod install core dev task',
+			'Version: append #branch, #tag or #commit, e.g. core#v1.2',
+			'Private module: mod install --account <name> owner/repo (over ssh with that account; kept in the lock file for restores and updates)',
+			'With YENA_DATA the modules go to the overlay',
+		],
 		agent: 'confirm',
 	},
 	{
 		name: 'update',
 		aliases: ['up'],
 		usage: 'mod update [name]…',
-		description: 'Update modules to the latest version (an image module gets a newer copy in the overlay)',
+		description: 'Update modules to the latest version (image modules get a newer overlay copy)',
+		args: [{name: 'name', description: 'Module to update (none: all)'}],
 		agent: 'confirm',
 	},
 	{
@@ -22,6 +32,7 @@ const subcommands: Subcommand[] = [
 		aliases: ['rm'],
 		usage: 'mod remove <name>…',
 		description: 'Remove modules (only from the overlay; image modules leave with a rebuild)',
+		args: [{name: 'name', description: 'Module to remove'}],
 		agent: 'confirm',
 	},
 	{
@@ -31,20 +42,9 @@ const subcommands: Subcommand[] = [
 		description: 'Show installed modules',
 		agent: 'safe',
 	},
-	{
-		name: 'help',
-		usage: 'mod help [subcommand]',
-		description: 'Show this help or help for one subcommand',
-		agent: 'safe',
-	},
 ];
 
-const notes = [
-	'Sources: core (official module by name), user/repo, gitlab:user/repo, https://host/repo.git, ./folder',
-	'Several at once: mod install core dev task',
-	'Version: append #branch, #tag or #commit, e.g. core#v1.2',
-	'Private module: mod install --account <name> owner/repo (over ssh with that account; kept in the lock file for restores and updates)',
-];
+const USAGE = 'mod <subcommand>';
 
 /** Splits `--account <name>` (once, anywhere) off the sources. */
 export function parseInstallArgs(args: string[]): {specs: string[]; account?: string} {
@@ -82,12 +82,11 @@ export function statusTags(m: ModuleStatus, withOrigin = overlayEnabled): string
 	return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
 }
 
-const find = (name: string) => subcommands.find(s => s.name === name || s.aliases?.includes(name));
-
 export const modCommand: Command = {
 	name: 'mod',
-	description: 'Module manager (mod help)',
-	usage: 'mod <install|update|remove|list|help> [args]',
+	description: 'Install, update, remove and list modules',
+	usage: USAGE,
+	args: [{name: 'subcommand', description: 'What to do; see the subcommands'}],
 	subcommands,
 	agent: 'confirm',
 	run: async ([sub, ...args], ctx) => {
@@ -119,21 +118,8 @@ export const modCommand: Command = {
 				return;
 			}
 			case undefined:
-			case 'help': {
-				const one = args[0] === undefined ? undefined : find(args[0]);
-				if (args[0] !== undefined && !one) throw new Error(`Unknown subcommand "${args[0]}"`);
-				if (one) {
-					log(`  ${one.usage}`);
-					log(`  ${one.description}`);
-					if (one.aliases) log(`  Aliases: ${one.aliases.join(', ')}`);
-					return;
-				}
-				const width = Math.max(...subcommands.map(s => s.usage.length));
-				for (const s of subcommands) log(`  ${s.usage.padEnd(width)}   ${s.description}`);
-				log('');
-				for (const line of notes) log(`  ${line}`);
-				return;
-			}
+			case 'help':
+				return ctx.showHelp ? ctx.showHelp() : log(USAGE);
 			default:
 				throw new Error(`Unknown subcommand "${sub}". See mod help`);
 		}

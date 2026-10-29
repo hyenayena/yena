@@ -61,14 +61,24 @@ export type MountOptions = {
 // How an AI assistant may run a command: freely, after the user confirms, or never. Undeclared = 'confirm'.
 export type AgentPolicy = 'safe' | 'confirm' | 'deny';
 
+export type CommandInfoSub = {
+	name: string;
+	aliases: string[];
+	usage: string;
+	description: string;
+	policy: AgentPolicy;
+	subcommands?: CommandInfoSub[];
+};
+
 export type CommandInfo = {
 	name: string;
 	description: string;
 	usage?: string;
 	policy: AgentPolicy;
-	subcommands: {name: string; aliases: string[]; usage: string; description: string; policy: AgentPolicy}[];
+	subcommands: CommandInfoSub[];
 };
 
+// `subcommand`: the subcommand path joined by single spaces, e.g. `auth login`.
 export type CommandConfirmRequest = {line: string; command: string; subcommand?: string; caller: string};
 
 export type CommandRunRequest = {
@@ -105,6 +115,8 @@ export type CommandContext = {
 	signal?: AbortSignal;
 	// True in a one-shot terminal run (`--run`): commands must not start background work.
 	headless?: boolean;
+	// Prints core's help for this command, or for the subcommand path below it (e.g. `['auth']`).
+	showHelp?: (path?: string[]) => void;
 };
 
 export type SettingOption = {
@@ -139,18 +151,46 @@ export type SettingsTab = {
 	actions?: SettingAction[];
 };
 
+// One argument slot of a usage. `name` is the slot without `<>[]` or `…` (`project` for `<project>…`);
+// absent `optional`/`repeatable` are read from the usage.
+export type ArgumentDoc = {
+	name: string;
+	description: string;
+	optional?: boolean;
+	repeatable?: boolean;
+};
+
+// `name`: '--name', '-H' or a pattern like '--<field>'. `value`: the placeholder as written in the
+// usage ('<n>', 'name:value'); absent for a switch.
+export type OptionDoc = {
+	name: string;
+	aliases?: string[];
+	value?: string;
+	description: string;
+	repeatable?: boolean;
+};
+
 export type Subcommand = {
 	name: string;
 	aliases?: string[];
 	usage: string;
 	description: string;
 	agent?: AgentPolicy;
+	args?: ArgumentDoc[];
+	options?: OptionDoc[];
+	// Prose lines for help.
+	notes?: string[];
+	subcommands?: Subcommand[];
 };
 
 export type Command = {
 	name: string;
 	description: string;
 	usage?: string;
+	args?: ArgumentDoc[];
+	options?: OptionDoc[];
+	// Prose lines for help.
+	notes?: string[];
 	subcommands?: Subcommand[];
 	// Run once with no arguments when the UI starts (e.g. to open the chat).
 	autostart?: boolean;

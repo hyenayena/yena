@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {modCommand} from '../../src/pm/command.js';
+import type {CommandContext} from '../../src/api.js';
 
 test('mod asks for confirmation by default', () => {
 	assert.equal(modCommand.agent, 'confirm');
@@ -8,7 +9,7 @@ test('mod asks for confirmation by default', () => {
 
 test('mod subcommand agent policies', () => {
 	const policies = Object.fromEntries((modCommand.subcommands ?? []).map(s => [s.name, s.agent]));
-	assert.deepEqual(policies, {install: 'confirm', update: 'confirm', remove: 'confirm', list: 'safe', help: 'safe'});
+	assert.deepEqual(policies, {install: 'confirm', update: 'confirm', remove: 'confirm', list: 'safe'});
 });
 
 test('mod install splits --account off the sources', async () => {
@@ -21,4 +22,16 @@ test('mod install splits --account off the sources', async () => {
 	assert.throws(() => parseInstallArgs(['--account', 'a', '--account', 'b', 'task']), /more than once/);
 	assert.throws(() => parseInstallArgs(['--account', 'bot']), /needs the modules/);
 	assert.throws(() => parseInstallArgs(['--force', 'task']), /Unknown option/);
+});
+
+test('mod without a subcommand shows the help through ctx.showHelp, or prints the usage without it', async () => {
+	const lines: string[] = [];
+	let shown = 0;
+	const print = (l: string) => void lines.push(l);
+	await modCommand.run([], {print, showHelp: () => void shown++} as unknown as CommandContext);
+	await modCommand.run(['help'], {print, showHelp: () => void shown++} as unknown as CommandContext);
+	assert.equal(shown, 2);
+	assert.deepEqual(lines, []);
+	await modCommand.run([], {print} as unknown as CommandContext);
+	assert.deepEqual(lines, ['mod <subcommand>']);
 });

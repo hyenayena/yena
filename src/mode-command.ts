@@ -9,18 +9,19 @@ export type ModeCommandOptions = {
 };
 
 const subcommands: Subcommand[] = [
-	{name: 'show', usage: 'mode [show]', description: 'Show where yena starts from and where it runs now', agent: 'safe'},
+	{name: 'show', usage: 'mode show', description: 'Show where yena starts from and where it runs now', agent: 'safe'},
 	{name: 'image', usage: 'mode image', description: 'Start from the image (/app) from the next start on', agent: 'confirm'},
 	{
 		name: 'dev',
 		usage: 'mode dev [path]',
-		description: 'Start from a working copy of the repo (default /workplace/yena) from the next start on',
+		description: 'Start from a working copy of the repo from the next start on',
+		args: [{name: 'path', description: 'The working copy (default /workplace/yena)'}],
 		agent: 'confirm',
 	},
-	{name: 'help', usage: 'mode help', description: 'Show this help', agent: 'safe'},
 ];
 
 const NEXT_START = 'Takes effect on the next start.';
+const USAGE = 'mode [subcommand]';
 
 export async function createModeCommand(opts: ModeCommandOptions): Promise<Command> {
 	let state: ModeState = await readMode(opts.stateDir);
@@ -54,8 +55,9 @@ export async function createModeCommand(opts: ModeCommandOptions): Promise<Comma
 
 	return {
 		name: 'mode',
-		description: 'Start yena from the image or from a working copy (mode help)',
-		usage: 'mode [show|image|dev [path]|help]',
+		description: 'Start yena from the image or from a working copy',
+		usage: USAGE,
+		args: [{name: 'subcommand', description: 'What to do (none: show)'}],
 		subcommands,
 		agent: 'confirm',
 		get settings() {
@@ -79,11 +81,8 @@ export async function createModeCommand(opts: ModeCommandOptions): Promise<Comma
 					log(`Start from: ${where(state.mode, state)}. ${state.mode === running() ? 'Already running so.' : NEXT_START}`);
 					return;
 				}
-				case 'help': {
-					const width = Math.max(...subcommands.map(s => s.usage.length));
-					for (const s of subcommands) log(`  ${s.usage.padEnd(width)}   ${s.description}`);
-					return;
-				}
+				case 'help':
+					return ctx.showHelp ? ctx.showHelp() : log(USAGE);
 				default:
 					throw new Error(`Unknown subcommand "${sub}". See mode help`);
 			}
