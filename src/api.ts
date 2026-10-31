@@ -20,6 +20,18 @@ export type RenderedPrint = {text: string; actions?: PrintAction[]};
 
 export type PrintOptions = {actions?: PrintAction[]; render?: (width: number) => string | RenderedPrint};
 
+export type SpanTone = 'accent' | 'muted' | 'ok' | 'warn' | 'error';
+
+export type StyledSpan = {text: string; tone?: SpanTone; bold?: boolean; decor?: boolean};
+
+export type StyledCell = string | StyledSpan | readonly (string | StyledSpan)[];
+
+export type StyledBlock =
+	| {kind: 'line'; spans: readonly (string | StyledSpan)[]; decor?: boolean}
+	| {kind: 'rule'}
+	| {kind: 'table'; head?: readonly string[]; rows: readonly (readonly StyledCell[])[]; flex?: number}
+	| {kind: 'text'; text: string; tone?: SpanTone};
+
 export type MountControl = {
 	close(): void;
 	print?: (text: string, options?: PrintOptions) => void;
@@ -74,6 +86,7 @@ export type CommandBridge = {
 
 export type CommandContext = {
 	print: (text: string) => void;
+	printStyled?: (blocks: readonly StyledBlock[]) => void;
 	clear: () => void;
 	exit: () => void;
 	mount?: (build: (control: MountControl) => UiElement, options?: MountOptions) => Promise<void>;
