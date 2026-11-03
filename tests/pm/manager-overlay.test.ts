@@ -10,7 +10,7 @@ const home = await realpath(await mkdtemp(path.join(tmpdir(), 'yena-overlay-')))
 process.env.YENA_HOME = home;
 process.env.YENA_DATA = path.join(home, 'data');
 const {install, list, overlayDir, remove, resolveModules, update} = await import('../../src/pm/manager.js');
-const {statusTags} = await import('../../src/pm/command.js');
+const {modListBlocks, plainBlockLines} = await import('../../src/pm/command.js');
 
 const imageDir = path.join(home, 'modules');
 const overlay = path.join(home, 'data', 'host', 'modules');
@@ -64,9 +64,12 @@ test('dependencies already in the image are not installed again', async () => {
 test('list shows a row per copy with its origin', async () => {
 	const rows = (await list()).filter(r => r.name === 'kit');
 	assert.deepEqual(rows.map(r => [r.origin, r.version, r.active]), [['image', '0.4.0', false], ['overlay', '0.4.0', true]]);
-	assert.equal(statusTags(rows[0]!, true), ' [image, not used: the overlay is newer, not in lock file]');
-	assert.equal(statusTags(rows[1]!, true), ' [overlay]');
-	assert.equal(statusTags(rows[1]!, false), '');
+	const kitSource = path.join(home, 'src', 'kit-0.4.0');
+	assert.deepEqual(plainBlockLines(modListBlocks(rows, undefined, true)), [
+		'kit  0.4.0  image, not used: the overlay is newer  not in lock file',
+		`kit  0.4.0  overlay  ${kitSource}`,
+	]);
+	assert.deepEqual(plainBlockLines(modListBlocks([rows[1]!], undefined, false)), [`kit  0.4.0  ${kitSource}`]);
 });
 
 test('remove: image-only modules refuse, an overlay copy goes and the image copy is used again', async () => {

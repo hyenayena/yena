@@ -1,4 +1,4 @@
-import type {Command, Subcommand} from '../api.js';
+import type {Command, StyledBlock, StyledCell, StyledSpan, Subcommand} from '../api.js';
 import {readImageRecord} from './bake.js';
 import {install, list, overlayEnabled, remove, update, type ModuleStatus} from './manager.js';
 
@@ -66,18 +66,66 @@ export function parseInstallArgs(args: string[]): {specs: string[]; account?: st
 	return {specs, ...(account !== undefined && {account})};
 }
 
-const STATE_FLAG: Record<ModuleStatus['state'], string> = {ok: '', missing: 'not downloaded', untracked: 'not in lock file', broken: 'broken'};
+const STATE_FLAG: Record<ModuleStatus['state'], StyledSpan | undefined> = {
+	ok: undefined,
+	missing: {text: 'not downloaded', tone: 'warn'},
+	untracked: {text: 'not in lock file', tone: 'warn'},
+	broken: {text: 'broken', tone: 'error'},
+};
 
-export function statusTags(m: ModuleStatus, withOrigin = overlayEnabled): string {
-	const tags: string[] = [];
-	if (withOrigin) {
-		const loaded = m.state === 'ok' || m.state === 'untracked';
-		let origin: string = m.origin;
-		if (loaded && !m.active) origin += m.origin === 'overlay' ? ', skipped: the image is newer' : ', not used: the overlay is newer';
-		tags.push(origin);
+function originCell(m: ModuleStatus): StyledCell {
+	const loaded = m.state === 'ok' || m.state === 'untracked';
+	if (!loaded || m.active) return m.origin;
+	const note = m.origin === 'overlay' ? ', skipped: the image is newer' : ', not used: the overlay is newer';
+	return [m.origin, {text: note, tone: 'muted'}];
+}
+
+export function modListBlocks(modules: readonly ModuleStatus[], image: {builtAt: string} | undefined, withOrigin = overlayEnabled): StyledBlock[] {
+	const blocks: StyledBlock[] = [];
+	if (image) blocks.push({kind: 'line', spans: [{text: `Image built ${image.builtAt}`, tone: 'muted'}]});
+	const withState = modules.some(m => STATE_FLAG[m.state] !== undefined);
+	const head = ['Module', 'Version', ...(withOrigin ? ['Origin'] : []), ...(withState ? ['State'] : []), 'Source', 'Description'];
+	const rows = modules.map(m => {
+		const source = m.source ? `${m.source}${m.commit ? ` @ ${m.commit.slice(0, 7)}` : ''}` : '';
+		const row: StyledCell[] = [{text: m.name, bold: true}, m.version ?? ''];
+		if (withOrigin) row.push(originCell(m));
+		if (withState) row.push(STATE_FLAG[m.state] ?? '');
+		row.push(source ? {text: source, tone: 'muted'} : '', m.description ? {text: m.description, tone: 'muted'} : '');
+		return row;
+	});
+	blocks.push({kind: 'table', head, rows, flex: head.length - 1});
+	for (const m of modules) {
+		if (m.error) blocks.push({kind: 'line', spans: [{text: `${m.name}: `, bold: true}, {text: m.error, tone: 'error'}]});
 	}
-	if (STATE_FLAG[m.state]) tags.push(STATE_FLAG[m.state]);
-	return tags.length > 0 ? ` [${tags.join(', ')}]` : '';
+	return blocks;
+}
+
+function plainSpans(spans: StyledCell): string {
+	if (typeof spans === 'string') return spans;
+	const list = Array.isArray(spans) ? (spans as readonly (string | StyledSpan)[]) : [spans as StyledSpan];
+	return list.map(s => (typeof s === 'string' ? s : s.decor ? '' : s.text)).join('');
+}
+
+export function plainBlockLines(blocks: readonly StyledBlock[]): string[] {
+	const lines: string[] = [];
+	for (const block of blocks) {
+		switch (block.kind) {
+			case 'line': {
+				if (block.decor || (block.spans.length > 0 && block.spans.every(s => typeof s !== 'string' && s.decor))) break;
+				lines.push(plainSpans(block.spans).trimEnd());
+				break;
+			}
+			case 'table':
+				for (const row of block.rows) lines.push(row.map(plainSpans).filter(c => c.trim() !== '').join('  ').trimEnd());
+				break;
+			case 'text':
+				for (const line of block.text.split('\n')) lines.push(line.trimEnd());
+				break;
+			case 'rule':
+				break;
+		}
+	}
+	return lines.every(l => l === '') ? [] : lines;
 }
 
 export const modCommand: Command = {
@@ -105,15 +153,8 @@ export const modCommand: Command = {
 			case 'ls': {
 				const modules = await list();
 				if (modules.length === 0) return log('No modules. Try: mod install user/repo');
-				const image = await readImageRecord();
-				if (image) log(`  Image built ${image.builtAt}`);
-				for (const m of modules) {
-					const version = m.version ? `@${m.version}` : '';
-					log(`  ${m.name}${version}${statusTags(m)}${m.description ? ` — ${m.description}` : ''}`);
-					if (m.source) log(`      ${m.source}${m.commit ? ` @ ${m.commit.slice(0, 7)}` : ''}`);
-					if (m.error) log(`      ${m.error}`);
-				}
-				return;
+				const blocks = modListBlocks(modules, await readImageRecord());
+				return ctx.printStyled ? ctx.printStyled(blocks) : log(plainBlockLines(blocks).join('\n'));
 			}
 			case undefined:
 			case 'help':
