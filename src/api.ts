@@ -104,11 +104,14 @@ export type SettingOption = {
 	description?: string;
 };
 
+export type SettingInline = {row: string; label?: string; section?: string};
+
 export type Setting = {
 	key: string;
 	label: string;
 	description?: string;
 	options: SettingOption[];
+	inline?: SettingInline;
 	get: () => string | undefined | Promise<string | undefined>;
 	set: (value: string) => void | Promise<void>;
 };
