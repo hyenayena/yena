@@ -96,6 +96,7 @@ export type CommandContext = {
 	signal?: AbortSignal;
 	headless?: boolean;
 	showHelp?: (path?: string[]) => void;
+	caller?: string;
 };
 
 export type SettingOption = {
