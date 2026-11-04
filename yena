@@ -88,7 +88,8 @@ YENA_LOG=on/off|Write the log, .yena/host/logs/yena.log (on, the default) or not
 YENA_STABLE=1|Start the app from the image even in dev mode (mode dev)
 YENA_WORKPLACE=<dir>|Folder mounted as /workplace when the container is created (default: ..)
 YENA_CLIPBOARD=off|Do not copy text selected in the app to the host clipboard
-NO_COLOR|Set to any value to turn off colours in this script
+NO_COLOR|Set to any value to turn off colours in this script and in the app
+YENA_COLOR=<depth>|Colour depth of the app: truecolor, 256, 16 or none (default: detected)
 YENA_HINTS=off|Do not print the hint: lines this script writes to stderr
 ENVS
 	printf '\nInside the container: npm run logs (last 200 log lines)\n'
@@ -334,9 +335,9 @@ run_exec() {
 	tty=''
 	[ -t 0 ] && tty=-t
 	if [ -n "${EXEC_DIR:-}" ]; then
-		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e "YENA_STATUS_DIR=$STATUS_DIR" -w "$EXEC_DIR" -i $tty yena "$@"
+		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e COLORTERM -e NO_COLOR -e YENA_COLOR -e "YENA_STATUS_DIR=$STATUS_DIR" -w "$EXEC_DIR" -i $tty yena "$@"
 	else
-		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
+		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e COLORTERM -e NO_COLOR -e YENA_COLOR -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
 	fi
 }
 
@@ -431,7 +432,7 @@ run_tracked() {
 	trap 'exit 129' HUP
 	trap 'exit 143' TERM
 	status=0
-	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
+	docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e COLORTERM -e NO_COLOR -e YENA_COLOR -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
 	if [ "$status" -eq 2 ] && [ -n "${SUGGEST_FOR:-}" ]; then
 		likely=$(suggest "$SUGGEST_FOR" || true)
 		if [ -n "$likely" ]; then

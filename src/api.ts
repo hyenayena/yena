@@ -85,7 +85,7 @@ export type CommandBridge = {
 };
 
 export type CommandContext = {
-	print: (text: string) => void;
+	print: (text: string, options?: PrintOptions) => void;
 	printStyled?: (blocks: readonly StyledBlock[]) => void;
 	clear: () => void;
 	exit: () => void;

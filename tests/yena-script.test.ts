@@ -10,8 +10,8 @@ import {fileURLToPath} from 'node:url';
 const script = fileURLToPath(new URL('../yena', import.meta.url));
 const END = '--end--';
 const STATUS_ENV = ['-e', 'YENA_STATUS_DIR=/tmp/yena-status'];
-const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-i', 'yena'];
-const WORK_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
+const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-i', 'yena'];
+const WORK_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
 const WORK = new Set(['install', 'typecheck', 'test', 'compile']);
 const PS = ['ps', '-q', '--filter', 'name=^yena$'];
 const UP = ['compose', 'up', '-d'];
@@ -200,7 +200,7 @@ test('yena hands text the app copies to the host clipboard and stops watching at
 	const r = run(fx, ['yena'], {YENA_CLIPBOARD: '', STUB_CLIP: 'copied text'});
 	assert.equal(r.status, 0, r.stderr);
 	const exec = (await argsOf(fx))[1]!;
-	assert.deepEqual(exec.slice(0, 11), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
+	assert.deepEqual(exec.slice(0, 17), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
 	assert.equal(await readFile(clipLog, 'utf8'), 'copied text');
 	assert.equal(existsSync(path.join(fx.dir, '.yena', '.clipboard', '1.txt')), false, 'the file is deleted once copied');
 	const plain = await makeFixture();
@@ -452,7 +452,7 @@ test('the no-arguments refusal says which command takes arguments', async () => 
 test('help lists the environment variables without colour on a pipe', async () => {
 	const fx = await makeFixture();
 	const r = run(fx, ['help']);
-	for (const v of ['YENA_LOG_LEVEL', 'YENA_LOG=', 'YENA_CLIPBOARD=off', 'NO_COLOR', 'YENA_HINTS=off', 'npm run logs']) {
+	for (const v of ['YENA_LOG_LEVEL', 'YENA_LOG=', 'YENA_CLIPBOARD=off', 'NO_COLOR', 'YENA_COLOR=', 'YENA_HINTS=off', 'npm run logs']) {
 		assert.ok(r.stdout.includes(v), v);
 	}
 	assert.ok(!r.stdout.includes(ESC));
@@ -586,7 +586,7 @@ test('zsh registers the completion for yena and ./yena', {skip: !hasShell('zsh')
 	assert.equal(r.stdout.trim(), '_yena _yena 18');
 });
 
-const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', ...STATUS_ENV];
+const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV];
 const TSX = ['node_modules/.bin/tsx', 'src/cli.ts', '--run', '--'];
 const CATALOG_CALL = ['exec', '-e', 'YENA_LOG=off', 'yena', 'node_modules/.bin/tsx', 'src/cli.ts', '--catalog'];
 
