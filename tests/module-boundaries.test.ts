@@ -6,8 +6,11 @@ import {after, describe, it} from 'node:test';
 import {fileURLToPath} from 'node:url';
 
 const PUBLIC: Record<string, string[]> = {core: ['src/kit/text.ts', 'src/kit/ui.ts']};
-const DEFAULT_PUBLIC = ['src/public.ts'];
-const UI_PUBLIC = new Set(['core/src/kit/ui.ts']);
+const DEFAULT_PUBLIC = ['src/public.ts', 'src/public-ui.ts'];
+const isUiEntry = (rel: string): boolean => {
+	const unix = rel.split(path.sep).join('/');
+	return unix === 'core/src/kit/ui.ts' || /^[^/]+\/src\/public-ui\.ts$/.test(unix);
+};
 const KIT_ADAPTERS = ['src/kit.ts', 'src/ui/kit.ts'];
 const HOST_TYPES = 'src/api.ts';
 
@@ -111,7 +114,7 @@ export function checkModules(root: string): string[] {
 
 	for (const name of names) {
 		for (const entry of publicOf(name)) {
-			if (!existsSync(entry) || UI_PUBLIC.has(path.relative(modulesDir, entry))) continue;
+			if (!existsSync(entry) || isUiEntry(path.relative(modulesDir, entry))) continue;
 			const seen = new Set<string>();
 			const stack = [entry];
 			while (stack.length > 0) {
@@ -121,7 +124,11 @@ export function checkModules(root: string): string[] {
 				for (const ref of refs(readFileSync(file, 'utf8'))) {
 					if (ref.typeOnly) continue;
 					if (/^(react|ink)(\/|$)/.test(ref.spec)) problems.push(`${path.relative(modulesDir, entry)} loads ${ref.spec} (through ${path.relative(modulesDir, file)})`);
-					else if (ref.spec.startsWith('.')) stack.push(toTs(path.resolve(path.dirname(file), ref.spec)));
+					else if (ref.spec.startsWith('.')) {
+						const next = toTs(path.resolve(path.dirname(file), ref.spec));
+						if (isUiEntry(path.relative(modulesDir, next))) problems.push(`${path.relative(modulesDir, entry)} reaches the UI entry ${path.relative(modulesDir, next)}`);
+						else stack.push(next);
+					}
 				}
 			}
 		}
@@ -168,6 +175,19 @@ describe('module boundaries', () => {
 		assert.deepEqual(checkModules(dir), []);
 	});
 
+	it('accept a UI entry src/public-ui.ts through an adapter', () => {
+		const dir = make({
+			'modules/a/yena.json': manifest(['b']),
+			'modules/a/src/index.ts': "const ui = () => import('./deps/b-ui.js');\n",
+			'modules/a/src/deps/b-ui.ts': "export {v} from '../../../b/src/public-ui.js';\n",
+			'modules/a/src/deps/b.ts': "export {f} from '../../../b/src/public.js';\n",
+			'modules/b/yena.json': manifest(),
+			'modules/b/src/public.ts': 'export const f = 1;\n',
+			'modules/b/src/public-ui.ts': "import {Box} from 'ink';\nexport const v = Box;\n",
+		});
+		assert.deepEqual(checkModules(dir), []);
+	});
+
 	it('find every kind of violation', () => {
 		const dir = make({
 			'modules/a/yena.json': manifest(['b', 'c']),
@@ -175,7 +195,8 @@ describe('module boundaries', () => {
 			'modules/a/src/deps/b.ts': "export {f} from '../../../b/src/public.js';\n",
 			'modules/a/src/deps/d.ts': "export {k} from '../../../d/src/public.js';\n",
 			'modules/d/yena.json': manifest(),
-			'modules/d/src/public.ts': 'export const k = 1;\n',
+			'modules/d/src/public.ts': "import {u} from './public-ui.js';\nexport const k = u;\n",
+			'modules/d/src/public-ui.ts': "import React from 'react';\nexport const u = React;\n",
 			'modules/a/tests/t.test.ts': "import {f} from '../../b/src/public.js';\n",
 			'modules/b/yena.json': manifest(['a']),
 			'modules/b/src/public.ts': "import {Box} from 'ink';\nexport const f = 1;\n",
@@ -195,6 +216,7 @@ describe('module boundaries', () => {
 			/a\/yena\.json: dependency c is declared but never imported/,
 			/dependency cycle: a -> b -> a|dependency cycle: b -> a -> b/,
 			/b\/src\/public\.ts loads ink/,
+			/d\/src\/public\.ts reaches the UI entry d\/src\/public-ui\.ts/,
 		]) {
 			assert.match(problems, expected);
 		}
