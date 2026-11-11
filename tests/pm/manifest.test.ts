@@ -42,3 +42,36 @@ test('invalid credentials declarations are rejected', async () => {
 	const twenty = Object.fromEntries(Array.from({length: 20}, (_, i) => [`k${i}`, 'read']));
 	assert.equal(Object.keys((await readManifest(await manifestWith({credentials: twenty}))).credentials ?? {}).length, 20);
 });
+
+test('dependencies take the object form; optional defaults to false', async () => {
+	assert.deepEqual((await readManifest(await manifestWith({}))).dependencies, {});
+	const deps = {core: {source: 'core', version: '^0.22.0'}, project: {source: 'user/project', version: '0.4.0', optional: true}};
+	assert.deepEqual((await readManifest(await manifestWith({dependencies: deps}))).dependencies, {
+		core: {source: 'core', range: '^0.22.0', optional: false},
+		project: {source: 'user/project', range: '0.4.0', optional: true},
+	});
+});
+
+test('the old string form is rejected with the fix', async () => {
+	await assert.rejects(
+		readManifest(await manifestWith({dependencies: {chat: 'chat'}})),
+		/yena\.json: dependency "chat" has no version; write \{"source": "chat", "version": "\^x\.y\.z"\}/,
+	);
+	await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {source: 'chat'}}})), /dependency "chat" has no version/);
+	await assert.rejects(readManifest(await manifestWith({dependencies: ['chat']})), /"dependencies" must be an object/);
+	await assert.rejects(readManifest(await manifestWith({dependencies: {Chat: {source: 'c', version: '^1.0.0'}}})), /invalid dependency "Chat"/);
+});
+
+test('an invalid range or a missing source is rejected', async () => {
+	for (const version of ['~0.5', '>=0.5.0', '^1', 'v1.0.0', '^1.0.0-beta', 5]) {
+		await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {source: 'chat', version}}})), /dependency "chat" has an invalid version .*; use "\^x\.y\.z" or "x\.y\.z"/);
+	}
+	await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {version: '^1.0.0'}}})), /dependency "chat" needs "source": a non-empty string/);
+	await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {source: '', version: '^1.0.0'}}})), /needs "source"/);
+});
+
+test('an unknown field, a non-boolean optional and a self-dependency are rejected', async () => {
+	await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {source: 'chat', version: '^1.0.0', foo: 1}}})), /dependency "chat" has an unknown field "foo"/);
+	await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {source: 'chat', version: '^1.0.0', optional: 'yes'}}})), /dependency "chat": "optional" must be true or false/);
+	await assert.rejects(readManifest(await manifestWith({dependencies: {m: {source: 'm', version: '^1.0.0'}}})), /"m" cannot depend on itself/);
+});

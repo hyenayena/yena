@@ -1,6 +1,7 @@
 import type {Command, StyledBlock, StyledCell, StyledSpan, Subcommand} from '../api.js';
 import {readImageRecord} from './bake.js';
-import {install, list, overlayEnabled, remove, update, type ModuleStatus} from './manager.js';
+import {fixVersions, parseFixArgs} from './fix.js';
+import {install, list, lockRoot, overlayEnabled, remove, update, type ModuleStatus} from './manager.js';
 
 const subcommands: Subcommand[] = [
 	{
@@ -33,6 +34,27 @@ const subcommands: Subcommand[] = [
 		usage: 'mod remove <name>…',
 		description: 'Remove modules (only from the overlay; image modules leave with a rebuild)',
 		args: [{name: 'name', description: 'Module to remove'}],
+		agent: 'confirm',
+	},
+	{
+		name: 'fix',
+		usage: 'mod fix [--ranges] [--yes]',
+		description: 'Find and apply compatible module versions after a version conflict',
+		options: [
+			{name: '--ranges', description: "Developer: move the ranges in a working copy's yena.json to the installed versions"},
+			{name: '--yes', description: 'Apply the plan (without it only the plan is shown)'},
+		],
+		notes: [
+			'Default: installs the newest versions inside every dependent\'s range, from the sources in the lock file',
+			'--ranges: rewrites dependencies.<name>.version of working copies in modules/ to ^<installed version>',
+		],
+		agent: 'confirm',
+	},
+	{
+		name: 'lock',
+		usage: 'mod lock',
+		description: "Record the modules of a working copy (versions and commits) in yena-modules.json",
+		notes: ['Only in dev mode; a checkout with uncommitted changes is skipped'],
 		agent: 'confirm',
 	},
 	{
@@ -71,10 +93,11 @@ const STATE_FLAG: Record<ModuleStatus['state'], StyledSpan | undefined> = {
 	missing: {text: 'not downloaded', tone: 'warn'},
 	untracked: {text: 'not in lock file', tone: 'warn'},
 	broken: {text: 'broken', tone: 'error'},
+	incompatible: {text: 'not loaded', tone: 'error'},
 };
 
 function originCell(m: ModuleStatus): StyledCell {
-	const loaded = m.state === 'ok' || m.state === 'untracked';
+	const loaded = m.state === 'ok' || m.state === 'untracked' || m.state === 'incompatible';
 	if (!loaded || m.active) return m.origin;
 	const note = m.origin === 'overlay' ? ', skipped: the image is newer' : ', not used: the overlay is newer';
 	return [m.origin, {text: note, tone: 'muted'}];
@@ -149,6 +172,11 @@ export const modCommand: Command = {
 			case 'remove':
 			case 'rm':
 				return remove(args, log);
+			case 'fix':
+				return fixVersions(parseFixArgs(args), log);
+			case 'lock':
+				if (args.length > 0) throw new Error('mod lock takes no arguments');
+				return lockRoot(log);
 			case 'list':
 			case 'ls': {
 				const modules = await list();

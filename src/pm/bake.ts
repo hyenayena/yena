@@ -4,6 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {readManifest} from './manifest.js';
 import {install, modulesDir, root} from './manager.js';
 import {run, type Log} from './run.js';
+import {dependencyProblems, problemText} from './versions.js';
 
 export type ImageRecord = {
 	builtAt: string;
@@ -36,6 +37,11 @@ export async function bakeModules(log: Log): Promise<ImageRecord> {
 		if (!manifest.install) continue;
 		log(`$ ${name}: ${manifest.install}`);
 		await run(manifest.install, [], {cwd: dir, shell: true, log, scrubEnv: true});
+	}
+
+	const manifests = await Promise.all((await subdirs(modulesDir)).map(name => readManifest(path.join(modulesDir, name))));
+	for (const problem of dependencyProblems(manifests.map(m => ({name: m.name, version: m.version, dependencies: m.dependencies})))) {
+		log(`! ${problemText(problem)}`);
 	}
 
 	const lock = JSON.parse(await readFile(path.join(root, LOCK_FILE), 'utf8').catch(() => '{}')) as {

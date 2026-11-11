@@ -1,0 +1,54 @@
+{
+	"modules": {
+		"account": {
+			"source": "account",
+			"version": "0.8.1",
+			"commit": "bea5b84ac2bc2680139669096f2580b74abc15be"
+		},
+		"chat": {
+			"source": "chat",
+			"version": "0.5.1",
+			"commit": "337afa0df3e3a838868fb0e2b4b381d88e951d06"
+		},
+		"claude": {
+			"source": "claude",
+			"version": "0.34.1",
+			"commit": "644bcc64a637fe64e1f5c591b3a8057e8c409061"
+		},
+		"core": {
+			"source": "core",
+			"version": "0.22.0",
+			"commit": "8e3a8ea65c2c9d26d5d6f5d86ed15f063071fd05"
+		},
+		"dev": {
+			"source": "dev",
+			"version": "0.5.1",
+			"commit": "ee10dea3afa3bea6216609018337914d7c950199"
+		},
+		"http": {
+			"source": "http",
+			"version": "0.4.1",
+			"commit": "bdf86ed0ecc0e6ff5cdff8432a964b63f61e6af1"
+		},
+		"md": {
+			"source": "md",
+			"version": "0.1.0",
+			"commit": "a4aa8c80ae2386dfb0e91d279411604b8e0190f9"
+		},
+		"project": {
+			"source": "project",
+			"version": "0.4.1",
+			"commit": "db22fc23b483e115b184fcb4e6d89189655f7307"
+		},
+		"scheduler": {
+			"source": "scheduler",
+			"version": "0.4.1",
+			"commit": "285a27b23ac3836619456fb497c0745ac21d0ad1"
+		},
+		"task": {
+			"source": "task",
+			"version": "0.9.1",
+			"commit": "e98551e04adbc4f6cbbce1970c1300cb5e5b9496"
+		}
+	}
+}

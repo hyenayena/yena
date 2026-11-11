@@ -90,3 +90,23 @@ test('an older overlay core is skipped with a warning', async () => {
 	assert.equal(r.stdout, 'img sees image\n');
 	assert.equal(r.stderr, 'Warning: overlay module core 0.9.0 skipped: the image has 1.0.0\n');
 });
+
+test('a module outside its dependency range and its dependent are not loaded; the rest starts with a warning', async () => {
+	const h = await makeHome();
+	const dep = (name: string, version: string) => ({dependencies: {[name]: {source: name, version}}});
+	await files(path.join(h.home, 'modules', 'needy'), {
+		'yena.json': manifest('needy', '1.0.0', dep('imgmod', '^2.0.0')),
+		'src/index.ts': plugin('needy', `const extra = () => '';`),
+	});
+	await files(path.join(h.home, 'modules', 'chain'), {
+		'yena.json': manifest('chain', '1.0.0', dep('needy', '^1.0.0')),
+		'src/index.ts': plugin('chain', `const extra = () => '';`),
+	});
+	const r = run(h, ['img', 'ov']);
+	assert.equal(r.status, 0, r.stderr);
+	assert.equal(r.stdout, 'img sees image\nov sees image, host node_modules, kit loads 1\n');
+	assert.match(r.stderr, /Warning: module needy not loaded: needy needs imgmod \^2\.0\.0, installed 1\.0\.0; run "mod update imgmod"/);
+	assert.match(r.stderr, /Warning: module chain not loaded: chain needs needy, which is not loaded/);
+	assert.doesNotMatch(r.stderr, /imgmod not loaded|ovmod not loaded/);
+	assert.notEqual(run(h, ['needy']).status, 0);
+});

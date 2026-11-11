@@ -37,3 +37,11 @@ test('local copies run their install scripts, locked modules missing from the co
 test('a missing or broken record reads as none', async () => {
 	assert.equal(await readImageRecord(await realpath(await mkdtemp(path.join(tmpdir(), 'yena-bake-none-')))), undefined);
 });
+
+test('dependency problems of the image set are printed as warnings and the build goes on', async () => {
+	await writeModule(path.join(home, 'modules', 'needy'), {name: 'needy', version: '0.1.0', dependencies: {core: {source: 'core', version: '^2.0.0'}}});
+	const lines: string[] = [];
+	const record = await bakeModules(l => void lines.push(l));
+	assert.ok(lines.includes('! needy needs core ^2.0.0, installed 1.0.0; run "mod update core"'), lines.join('|'));
+	assert.ok(record.modules.some(m => m.name === 'needy'));
+});

@@ -3,6 +3,7 @@ import {cp, mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs
 import path from 'node:path';
 import {hostLog} from '../log/index.js';
 import {readManifest, RESERVED_NAMES, type Manifest} from './manifest.js';
+import {dependencyProblems, loadableModules, problemKey, problemText, satisfies, type DependencyProblem, type ModuleVersion} from './versions.js';
 import {gitSshFor} from './git-ssh.js';
 import {compareVersions, pickCopy, type Copy, type ModuleOrigin} from './overlay.js';
 import {run, type Log} from './run.js';
@@ -28,7 +29,7 @@ export async function moduleDataDir(name: string): Promise<string> {
 const pmLog = () => hostLog().child('pm');
 const LOCK_FILE = 'yena-modules.json';
 const imageLockPath = path.join(root, LOCK_FILE);
-const installDir = overlayDir ?? modulesDir;
+export const installDir = overlayDir ?? modulesDir;
 const installLockPath = overlayDir === undefined ? imageLockPath : path.join(stateDir, LOCK_FILE);
 
 type LockEntry = {
@@ -89,97 +90,198 @@ async function fetchSource(src: Source, dest: string, log: Log, account?: string
 	return commit;
 }
 
+type Staged = {
+	name: string;
+	spec: string;
+	staging: string;
+	manifest: Manifest;
+	commit: string | undefined;
+	account: string | undefined;
+};
+
 type Session = {
 	lock: Lock;
 	image: Lock;
 	log: Log;
 	seen: Set<string>;
+	staged: Map<string, Staged>;
+	stagings: string[];
+	backups: string[];
+	resolved: ResolvedModule[];
 };
 
 const lockEntry = (s: Session, name: string) => s.lock.modules[name] ?? s.image.modules[name];
 
-async function present(name: string): Promise<boolean> {
-	return (await exists(path.join(installDir, name))) || (await exists(path.join(modulesDir, name)));
-}
-
-type InstallOneOptions = {
+type StageOptions = {
 	pinCommit?: string;
 	account?: string;
 	current?: string;
 };
 
-async function installOne(spec: string, s: Session, {pinCommit, account, current}: InstallOneOptions = {}): Promise<Manifest> {
+async function stageOne(spec: string, s: Session, {pinCommit, account, current}: StageOptions = {}): Promise<Manifest> {
 	const trace = pmLog();
 	const src = parseSource(spec, root, {ssh: account !== undefined});
 	if (pinCommit && src.kind === 'git') src.ref = pinCommit;
 
 	await mkdir(installDir, {recursive: true});
 	const staging = path.join(installDir, `.staging-${randomUUID()}`);
-	const backup = path.join(installDir, `.backup-${randomUUID()}`);
+	s.stagings.push(staging);
 
-	try {
-		s.log(`↓ ${spec}${pinCommit ? ` @ ${pinCommit.slice(0, 7)}` : ''}`);
-		trace.info('install started', {spec, kind: src.kind, pinned: pinCommit?.slice(0, 7), account: account !== undefined});
-		const commit = await fetchSource(src, staging, s.log, account);
-		const manifest = await readManifest(staging);
-		trace.info('fetched', {module: manifest.name, version: manifest.version, commit: commit?.slice(0, 7)});
-		s.seen.add(manifest.name);
-		if (current !== undefined && commit === current) {
-			s.log(`  (no changes)`);
-			trace.info('unchanged', {module: manifest.name});
-			return manifest;
-		}
-
-		for (const [dep, depSpec] of Object.entries(manifest.dependencies)) {
-			if (s.seen.has(dep) || (await present(dep))) continue;
-			trace.info('installing dependency', {module: manifest.name, dependency: dep});
-			const entry = lockEntry(s, dep);
-			const installed = await installOne(depSpec, s, {pinCommit: entry?.commit, account: entry?.account ?? account});
-			if (installed.name !== dep) {
-				throw new Error(`Dependency "${dep}" is actually named "${installed.name}"`);
-			}
-		}
-
-		const target = path.join(installDir, manifest.name);
-		if (await exists(path.join(target, '.git'))) {
-			throw new Error(`modules/${manifest.name} is a git checkout; update it with git or remove it first`);
-		}
-		const hadOld = await exists(target);
-		if (hadOld) await rename(target, backup);
-		await rename(staging, target);
-		trace.info('swapped into place', {module: manifest.name, replaced: hadOld});
-
-		try {
-			if (manifest.install) {
-				s.log(`  $ ${manifest.install}`);
-				const started = Date.now();
-				trace.info('install script started', {module: manifest.name});
-				try {
-					await run(manifest.install, [], {cwd: target, shell: true, log: s.log, trace, scrubEnv: true});
-				} finally {
-					trace.info('install script finished', {module: manifest.name, ms: Date.now() - started});
-				}
-			}
-		} catch (error) {
-			trace.warn('rolling back', {module: manifest.name, restored: hadOld, err: error});
-			await rm(target, {recursive: true, force: true});
-			if (hadOld) await rename(backup, target);
-			throw error;
-		}
-
-		s.lock.modules[manifest.name] = {source: spec, version: manifest.version, commit, ...(account !== undefined && {account})};
-		await writeLock(s.lock);
-		trace.info('lock written', {module: manifest.name});
-		s.log(`✓ ${manifest.name}@${manifest.version}`);
-		trace.info('install finished', {module: manifest.name, version: manifest.version});
-		await warnIfShadowed(manifest, s.log);
-		return manifest;
-	} catch (error) {
-		trace.error('install failed', {spec, err: error});
-		throw error;
-	} finally {
+	s.log(`↓ ${spec}${pinCommit ? ` @ ${pinCommit.slice(0, 7)}` : ''}`);
+	trace.info('install started', {spec, kind: src.kind, pinned: pinCommit?.slice(0, 7), account: account !== undefined});
+	const commit = await fetchSource(src, staging, s.log, account);
+	const manifest = await readManifest(staging);
+	trace.info('fetched', {module: manifest.name, version: manifest.version, commit: commit?.slice(0, 7)});
+	s.seen.add(manifest.name);
+	if (current !== undefined && commit === current) {
+		s.log(`  (no changes)`);
+		trace.info('unchanged', {module: manifest.name});
 		await rm(staging, {recursive: true, force: true});
-		await rm(backup, {recursive: true, force: true});
+		return manifest;
+	}
+	if (s.staged.has(manifest.name)) {
+		await rm(staging, {recursive: true, force: true});
+		return manifest;
+	}
+	s.staged.set(manifest.name, {name: manifest.name, spec, staging, manifest, commit, account});
+
+	const have = new Map(s.resolved.map(m => [m.manifest.name, m.manifest]));
+	for (const [dep, d] of Object.entries(manifest.dependencies)) {
+		if (d.optional || s.seen.has(dep) || s.staged.has(dep)) continue;
+		const installed = have.get(dep);
+		if (installed && satisfies(installed.version, d.range)) continue;
+		trace.info('staging dependency', {module: manifest.name, dependency: dep, present: installed !== undefined});
+		const entry = lockEntry(s, dep);
+		const staged = installed
+			? await stageOne(entry?.source ?? d.source, s, {account: entry?.account ?? account})
+			: await stageOne(d.source, s, {pinCommit: entry?.commit, account: entry?.account ?? account});
+		if (staged.name !== dep) throw new Error(`Dependency "${dep}" is actually named "${staged.name}"`);
+	}
+	return manifest;
+}
+
+function dependencyOrder(staged: Staged[]): Staged[] {
+	const byName = new Map(staged.map(st => [st.name, st]));
+	const done = new Set<string>();
+	const ordered: Staged[] = [];
+	const visit = (st: Staged) => {
+		if (done.has(st.name)) return;
+		done.add(st.name);
+		for (const dep of Object.keys(st.manifest.dependencies)) {
+			const d = byName.get(dep);
+			if (d) visit(d);
+		}
+		ordered.push(st);
+	};
+	staged.forEach(visit);
+	return ordered;
+}
+
+const toVersions = (copies: Map<string, Copy>): ModuleVersion[] =>
+	[...copies.values()].map(c => ({name: c.manifest.name, version: c.manifest.version, dependencies: c.manifest.dependencies}));
+
+function winnerCopies(image: Map<string, Copy>, overlay: Map<string, Copy>): Map<string, Copy> {
+	const winners = new Map<string, Copy>();
+	for (const name of new Set([...image.keys(), ...overlay.keys()])) {
+		const picked = pickCopy(image.get(name), overlay.get(name));
+		if (picked) winners.set(name, picked.winner);
+	}
+	return winners;
+}
+
+export async function plannedVersions(staged: readonly {name: string; dir: string; manifest: Manifest}[]): Promise<{current: ModuleVersion[]; planned: ModuleVersion[]}> {
+	const image = await readCopies(modulesDir, 'image');
+	const overlay = overlayDir === undefined ? new Map<string, Copy>() : await readCopies(overlayDir, 'overlay');
+	const current = toVersions(winnerCopies(image, overlay));
+	const target = overlayDir === undefined ? image : overlay;
+	for (const st of staged) target.set(st.name, {dir: st.dir, manifest: st.manifest});
+	return {current, planned: toVersions(winnerCopies(image, overlay))};
+}
+
+export class RefusedInstall extends Error {}
+
+export function refusalText(problems: readonly DependencyProblem[], versionOf: (name: string) => string | undefined): string {
+	const parts = problems.map(p => {
+		const head = `${p.dependent} needs ${p.dependency} ${p.range}`;
+		const v = versionOf(p.dependency);
+		return v === undefined ? `${head}, which would not be installed` : `${head}, ${p.dependency} would be ${v}`;
+	});
+	const names = [...new Set(problems.flatMap(p => [p.dependency, p.dependent]))];
+	return `Refused, nothing was changed: ${parts.join('; ')}. Run "mod fix" to find compatible versions, or update them together (mod update ${names.join(' ')})`;
+}
+
+async function applyStaged(s: Session) {
+	const trace = pmLog();
+	const staged = dependencyOrder([...s.staged.values()]);
+	if (staged.length === 0) return;
+
+	for (const st of staged) {
+		if (await exists(path.join(installDir, st.name, '.git'))) {
+			throw new Error(`modules/${st.name} is a git checkout; update it with git or remove it first`);
+		}
+	}
+	const {current, planned} = await plannedVersions(staged.map(st => ({name: st.name, dir: st.staging, manifest: st.manifest})));
+	const before = new Set(dependencyProblems(current).map(problemKey));
+	const fresh = dependencyProblems(planned).filter(p => !before.has(problemKey(p)));
+	if (fresh.length > 0) {
+		const versions = new Map(planned.map(m => [m.name, m.version]));
+		trace.warn('install refused', {problems: fresh.length});
+		throw new RefusedInstall(refusalText(fresh, name => versions.get(name)));
+	}
+
+	const swapped: {name: string; target: string; backup: string; moved: boolean; placed: boolean}[] = [];
+	try {
+		for (const st of staged) {
+			const target = path.join(installDir, st.name);
+			const backup = path.join(installDir, `.backup-${randomUUID()}`);
+			s.backups.push(backup);
+			const rec = {name: st.name, target, backup, moved: false, placed: false};
+			swapped.push(rec);
+			if (await exists(target)) {
+				await rename(target, backup);
+				rec.moved = true;
+			}
+			await rename(st.staging, target);
+			rec.placed = true;
+			trace.info('swapped into place', {module: st.name, replaced: rec.moved});
+			const script = st.manifest.install;
+			if (!script) continue;
+			s.log(`  $ ${script}`);
+			const started = Date.now();
+			trace.info('install script started', {module: st.name});
+			try {
+				await run(script, [], {cwd: target, shell: true, log: s.log, trace, scrubEnv: true});
+			} finally {
+				trace.info('install script finished', {module: st.name, ms: Date.now() - started});
+			}
+		}
+	} catch (error) {
+		trace.warn('rolling back', {modules: swapped.length, err: error});
+		const failed: string[] = [];
+		for (const rec of swapped.reverse()) {
+			try {
+				if (rec.placed) await rm(rec.target, {recursive: true, force: true});
+				if (rec.moved) await rename(rec.backup, rec.target);
+			} catch (rollbackError) {
+				trace.error('rollback failed', {module: rec.name, err: rollbackError});
+				failed.push(rec.name);
+			}
+		}
+		if (failed.length > 0) {
+			throw new Error(`${(error as Error).message}\nRollback failed for ${failed.join(', ')}; remove them and reinstall`);
+		}
+		throw error;
+	}
+
+	for (const st of staged) {
+		s.lock.modules[st.name] = {source: st.spec, version: st.manifest.version, commit: st.commit, ...(st.account !== undefined && {account: st.account})};
+	}
+	await writeLock(s.lock);
+	trace.info('lock written', {modules: staged.length});
+	for (const st of staged) {
+		trace.info('install finished', {module: st.name, version: st.manifest.version});
+		s.log(`✓ ${st.name}@${st.manifest.version}`);
+		await warnIfShadowed(st.manifest, s.log);
 	}
 }
 
@@ -191,62 +293,94 @@ async function warnIfShadowed(manifest: Manifest, log: Log) {
 	}
 }
 
-async function session(log: Log): Promise<Session> {
-	return {lock: await readLock(installLockPath), image: await imageLock(), log, seen: new Set()};
+async function withSession<T>(log: Log, work: (s: Session) => Promise<T>): Promise<T> {
+	const s: Session = {
+		lock: await readLock(installLockPath),
+		image: await imageLock(),
+		log,
+		seen: new Set(),
+		staged: new Map(),
+		stagings: [],
+		backups: [],
+		resolved: (await resolveModules()).modules,
+	};
+	try {
+		return await work(s);
+	} catch (error) {
+		pmLog().error('install failed', {err: error});
+		throw error;
+	} finally {
+		for (const dir of [...s.stagings, ...s.backups]) await rm(dir, {recursive: true, force: true});
+	}
 }
 
 export type InstallOptions = {account?: string};
 
 export async function install(specs: string[], log: Log, {account}: InstallOptions = {}) {
-	const s = await session(log);
 	const trace = pmLog();
 	trace.info('install command started', {specs: specs.length});
-
-	if (specs.length > 0) {
-		for (const spec of new Set(specs)) {
-			const name = officialModuleName(spec);
-			if (name && s.seen.has(name)) continue;
-			await installOne(spec, s, {account});
+	await withSession(log, async s => {
+		if (specs.length > 0) {
+			for (const spec of new Set(specs)) {
+				const name = officialModuleName(spec);
+				if (name && s.seen.has(name)) continue;
+				await stageOne(spec, s, {account});
+			}
+			await applyStaged(s);
+			trace.info('install command finished', {specs: specs.length});
+			return;
 		}
-		trace.info('install command finished', {specs: specs.length});
-		return;
-	}
 
-	let restored = 0;
-	for (const [name, entry] of Object.entries(s.lock.modules)) {
-		if (s.seen.has(name) || (await exists(path.join(installDir, name)))) continue;
-		await installOne(entry.source, s, {pinCommit: entry.commit, account: entry.account});
-		restored++;
-	}
-	for (const {manifest} of await installedModules()) {
-		for (const [dep, depSpec] of Object.entries(manifest.dependencies)) {
-			if (s.seen.has(dep) || (await present(dep))) continue;
-			const entry = lockEntry(s, dep);
-			await installOne(depSpec, s, {pinCommit: entry?.commit, account: entry?.account});
-			restored++;
+		for (const [name, entry] of Object.entries(s.lock.modules)) {
+			if (s.seen.has(name) || (await exists(path.join(installDir, name)))) continue;
+			await stageOne(entry.source, s, {pinCommit: entry.commit, account: entry.account});
 		}
-	}
-	trace.info('install command finished', {specs: 0, restored});
-	log(restored ? `Modules restored: ${restored}` : 'All modules are already installed');
+		const have = new Set(s.resolved.map(m => m.manifest.name));
+		for (const {manifest} of s.resolved) {
+			for (const [dep, d] of Object.entries(manifest.dependencies)) {
+				if (d.optional || have.has(dep) || s.seen.has(dep)) continue;
+				const entry = lockEntry(s, dep);
+				await stageOne(d.source, s, {pinCommit: entry?.commit, account: entry?.account});
+			}
+		}
+		const restored = s.staged.size;
+		await applyStaged(s);
+		trace.info('install command finished', {specs: 0, restored});
+		log(restored ? `Modules restored: ${restored}` : 'All modules are already installed');
+	});
+}
+
+export type PinnedItem = {spec: string; commit?: string; account?: string};
+
+export async function installPinned(items: readonly PinnedItem[], log: Log) {
+	pmLog().info('install pinned started', {specs: items.length});
+	await withSession(log, async s => {
+		for (const {spec, commit, account} of items) {
+			await stageOne(spec, s, {...(commit !== undefined && {pinCommit: commit}), ...(account !== undefined && {account})});
+		}
+		await applyStaged(s);
+	});
 }
 
 export async function update(names: string[], log: Log) {
-	const s = await session(log);
-	const known = {...s.image.modules, ...s.lock.modules};
-	const targets = names.length > 0 ? names : Object.keys(known).sort();
-	pmLog().info('update started', {specs: targets.length});
-	if (targets.length === 0) return log('No modules installed');
+	await withSession(log, async s => {
+		const known = {...s.image.modules, ...s.lock.modules};
+		const targets = names.length > 0 ? names : Object.keys(known).sort();
+		pmLog().info('update started', {specs: targets.length});
+		if (targets.length === 0) return log('No modules installed');
 
-	const inUse = new Map((await resolveModules()).modules.map(m => [m.manifest.name, m.origin]));
-	for (const name of targets) {
-		const entry = known[name];
-		if (!entry) throw new Error(`Module "${name}" is not installed`);
-		if (s.seen.has(name)) continue;
-		const origin = inUse.get(name);
-		const current = origin === undefined ? undefined : (origin === 'overlay' || overlayDir === undefined ? s.lock : s.image).modules[name]?.commit;
-		await installOne(entry.source, s, {account: entry.account, ...(current !== undefined && {current})});
-	}
-	pmLog().info('update finished', {specs: targets.length});
+		const inUse = new Map(s.resolved.map(m => [m.manifest.name, m.origin]));
+		for (const name of targets) {
+			const entry = known[name];
+			if (!entry) throw new Error(`Module "${name}" is not installed`);
+			if (s.seen.has(name)) continue;
+			const origin = inUse.get(name);
+			const current = origin === undefined ? undefined : (origin === 'overlay' || overlayDir === undefined ? s.lock : s.image).modules[name]?.commit;
+			await stageOne(entry.source, s, {account: entry.account, ...(current !== undefined && {current})});
+		}
+		await applyStaged(s);
+		pmLog().info('update finished', {specs: targets.length});
+	});
 }
 
 export async function remove(names: string[], log: Log) {
@@ -330,7 +464,7 @@ export type ModuleStatus = {
 	description?: string;
 	source?: string;
 	commit?: string;
-	state: 'ok' | 'missing' | 'untracked' | 'broken';
+	state: 'ok' | 'missing' | 'untracked' | 'broken' | 'incompatible';
 	error?: string;
 	origin: ModuleOrigin;
 	active: boolean;
@@ -339,7 +473,10 @@ export type ModuleStatus = {
 export const overlayEnabled = overlayDir !== undefined;
 
 export async function list(): Promise<ModuleStatus[]> {
-	const inUse = new Set((await installedModules()).map(m => m.dir));
+	const winners = await installedModules();
+	const inUse = new Set(winners.map(m => m.dir));
+	const refused = new Map(loadableModules(winners).refused.map(r => [r.name, r.reasons]));
+	const reasonsByDir = new Map(winners.flatMap(m => (refused.has(m.manifest.name) ? [[m.dir, refused.get(m.manifest.name)!] as const] : [])));
 	const roots: {origin: ModuleOrigin; dir: string; lock: Lock}[] = [{origin: 'image', dir: modulesDir, lock: await readLock(imageLockPath)}];
 	if (overlayDir !== undefined) roots.push({origin: 'overlay', dir: overlayDir, lock: await readLock(installLockPath)});
 	const result: ModuleStatus[] = [];
@@ -357,11 +494,73 @@ export async function list(): Promise<ModuleStatus[]> {
 			}
 			try {
 				const m = await readManifest(dir);
-				result.push({...base, version: m.version, description: m.description, state: entry ? 'ok' : 'untracked'});
+				const reasons = reasonsByDir.get(dir);
+					const shown = {...base, version: m.version, description: m.description};
+					result.push(reasons ? {...shown, state: 'incompatible', error: reasons.join('; ')} : {...shown, state: entry ? 'ok' : 'untracked'});
 			} catch (error) {
 				result.push({...base, state: 'broken', error: (error as Error).message});
 			}
 		}
 	}
 	return result.sort((a, b) => a.name.localeCompare(b.name) || (a.origin === b.origin ? 0 : a.origin === 'image' ? -1 : 1));
+}
+
+export type LockInfo = {source: string; version: string; commit?: string; account?: string};
+
+export async function lockEntries(): Promise<Record<string, LockInfo>> {
+	return {...(await imageLock()).modules, ...(await readLock(installLockPath)).modules};
+}
+
+const OFFICIAL_ORIGIN = /^(?:https:\/\/github\.com\/|git@github\.com:)hyenayena\/([a-z0-9][a-z0-9._-]*?)(?:\.git)?$/;
+
+export async function lockRoot(log: Log) {
+	if (overlayDir !== undefined) {
+		throw new Error('mod lock records the modules of a working copy; run it in dev mode (mode dev)');
+	}
+	const old = (await readLock(installLockPath)).modules;
+	const names = await subdirs(modulesDir);
+	const manifests = new Map<string, Manifest>();
+	for (const name of names) manifests.set(name, await readManifest(path.join(modulesDir, name)));
+	const problems = dependencyProblems([...manifests.values()].map(m => ({name: m.name, version: m.version, dependencies: m.dependencies})));
+	if (problems.length > 0) {
+		throw new Error(`mod lock refuses an incompatible set: ${problems.map(problemText).join('; ')}`);
+	}
+
+	const modules: Record<string, LockEntry> = {};
+	for (const name of names) {
+		const dir = path.join(modulesDir, name);
+		const manifest = manifests.get(name)!;
+		const prev = old[name];
+		if (!(await exists(path.join(dir, '.git')))) {
+			if (prev) modules[name] = {...prev, version: manifest.version};
+			else log(`! ${name} is not a git checkout and not in the lock; not locked`);
+			continue;
+		}
+		const git = (...args: string[]) => run('git', ['-c', 'core.fsmonitor=false', '-C', dir, ...args], {env: {GIT_OPTIONAL_LOCKS: '0'}});
+		let commit: string;
+		let dirty: boolean;
+		let origin: string | undefined;
+		try {
+			commit = (await git('rev-parse', 'HEAD')).trim();
+			dirty = (await git('status', '--porcelain')).trim() !== '';
+			origin = (await git('remote', 'get-url', 'origin').catch(() => '')).trim() || undefined;
+		} catch (error) {
+			throw new Error(`mod lock: cannot read the commit of modules/${name}: ${(error as Error).message}`);
+		}
+		if (dirty) {
+			log(`! ${name} has uncommitted changes; not locked`);
+			if (prev) modules[name] = prev;
+			continue;
+		}
+		const official = origin === undefined ? undefined : OFFICIAL_ORIGIN.exec(origin)?.[1] === name;
+		const source = prev?.source ?? (official ? name : origin);
+		if (source === undefined) {
+			log(`! ${name} has no remote; not locked`);
+			continue;
+		}
+		modules[name] = {source, version: manifest.version, commit, ...(prev?.account !== undefined && {account: prev.account})};
+		log(`✓ ${name}@${manifest.version} ${commit.slice(0, 7)}`);
+	}
+	await writeLock({modules});
+	pmLog().info('root lock written', {modules: Object.keys(modules).length});
 }

@@ -1,8 +1,11 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import type {CredentialAccess} from '../api.js';
+import {parseRange} from './versions.js';
 
 export const MANIFEST_FILE = 'yena.json';
+
+export type Dependency = {source: string; range: string; optional: boolean};
 
 export type Manifest = {
 	name: string;
@@ -12,10 +15,11 @@ export type Manifest = {
 	entry?: string;
 	install?: string;
 	headless?: string;
-	dependencies: Record<string, string>;
+	dependencies: Record<string, Dependency>;
 	credentials?: Record<string, CredentialAccess>;
 };
 
+const DEP_FIELDS = new Set(['source', 'version', 'optional']);
 const NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const KIND = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const MAX_KINDS = 20;
@@ -31,13 +35,16 @@ export async function readManifest(dir: string): Promise<Manifest> {
 		throw new Error(`Module has no ${MANIFEST_FILE}`);
 	}
 
+	return parseManifest(raw);
+}
+
+export function parseManifest(raw: string): Manifest {
 	let data: unknown;
 	try {
 		data = JSON.parse(raw);
 	} catch (error) {
 		throw new Error(`${MANIFEST_FILE} is not valid JSON: ${(error as Error).message}`);
 	}
-
 	return validate(data);
 }
 
@@ -58,12 +65,27 @@ function validate(data: unknown): Manifest {
 		if (m[key] !== undefined && typeof m[key] !== 'string') fail(`"${key}" must be a string`);
 	}
 
-	const deps = m.dependencies ?? {};
-	if (typeof deps !== 'object' || deps === null || Array.isArray(deps)) {
-		fail('"dependencies" must be an object { name: source }');
+	const rawDeps = m.dependencies ?? {};
+	if (typeof rawDeps !== 'object' || rawDeps === null || Array.isArray(rawDeps)) {
+		fail('"dependencies" must be an object { name: {"source": "<source>", "version": "^x.y.z"} }');
 	}
-	for (const [name, source] of Object.entries(deps as object)) {
-		if (!NAME.test(name) || typeof source !== 'string') fail(`invalid dependency "${name}"`);
+	const deps: Record<string, Dependency> = {};
+	for (const [name, value] of Object.entries(rawDeps as object)) {
+		if (!NAME.test(name)) fail(`invalid dependency "${name}"`);
+		if (name === m.name) fail(`"${name}" cannot depend on itself`);
+		const noVersion = `dependency "${name}" has no version; write {"source": "${name}", "version": "^x.y.z"}`;
+		if (typeof value === 'string') fail(noVersion);
+		if (typeof value !== 'object' || value === null || Array.isArray(value)) fail(`invalid dependency "${name}"`);
+		const d = value as Record<string, unknown>;
+		for (const key of Object.keys(d)) if (!DEP_FIELDS.has(key)) fail(`dependency "${name}" has an unknown field "${key}"`);
+		const {source, version} = d;
+		if (typeof source !== 'string' || !source) fail(`dependency "${name}" needs "source": a non-empty string`);
+		if (version === undefined) fail(noVersion);
+		if (typeof version !== 'string' || !parseRange(version)) {
+			fail(`dependency "${name}" has an invalid version ${JSON.stringify(version)}; use "^x.y.z" or "x.y.z"`);
+		}
+		if (d.optional !== undefined && typeof d.optional !== 'boolean') fail(`dependency "${name}": "optional" must be true or false`);
+		deps[name] = {source: source as string, range: version as string, optional: d.optional === true};
 	}
 
 	const creds = m.credentials ?? {};
@@ -84,7 +106,7 @@ function validate(data: unknown): Manifest {
 		entry: m.entry as string | undefined,
 		install: m.install as string | undefined,
 		headless: m.headless as string | undefined,
-		dependencies: deps as Record<string, string>,
+		dependencies: deps,
 		credentials: Object.fromEntries(kinds) as Record<string, CredentialAccess>,
 	};
 }

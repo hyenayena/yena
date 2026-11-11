@@ -11,11 +11,12 @@ import {terminalText} from './log/sanitize.js';
 import {readMode, runningMode} from './mode.js';
 import {createModeCommand} from './mode-command.js';
 import {modCommand} from './pm/command.js';
-import {install, moduleDataDir, modulesDir, overlayDir, resolveModules, root, stateDir, type ResolvedModule} from './pm/manager.js';
+import {install, moduleDataDir, RefusedInstall, modulesDir, overlayDir, resolveModules, root, stateDir, type ResolvedModule} from './pm/manager.js';
 import type {Manifest} from './pm/manifest.js';
 import {registerModuleHooks} from './pm/module-hooks.js';
 import {resolveInside} from './pm/paths.js';
 import {loadPlugins} from './pm/plugins.js';
+import {loadableModules} from './pm/versions.js';
 
 const CORE = 'core';
 
@@ -36,7 +37,13 @@ async function ensureCore(logger: Logger): Promise<ResolvedModule[]> {
 		const print = (line: string) => (oneShot ? console.error(line) : console.log(line));
 		logger.info('core missing, installing');
 		print('core is not installed, downloading…');
-		await install([], print);
+		try {
+			await install([], print);
+		} catch (error) {
+			if (!(error instanceof RefusedInstall)) throw error;
+			logger.warn('restore failed', {err: error});
+			print(`Warning: ${terminalText((error as Error).message, 600)}`);
+		}
 		({modules, skipped} = await resolveModules());
 		if (!findCore(modules)) {
 			await install([CORE], print);
@@ -47,13 +54,24 @@ async function ensureCore(logger: Logger): Promise<ResolvedModule[]> {
 		logger.warn('overlay module skipped', {module: m.name, version: m.version, imageVersion: m.imageVersion});
 		console.warn(`Warning: overlay module ${m.name} ${m.version} skipped: the image has ${m.imageVersion}`);
 	}
+	const {modules: loadable, refused} = loadableModules(modules);
+	for (const r of refused) {
+		logger.warn('module not loaded', {module: r.name, reasons: r.reasons.length});
+		console.warn(`Warning: module ${r.name} not loaded: ${terminalText(r.reasons.join('; '), 600)}`);
+	}
+	if (refused.length > 0) {
+		alerts.push({
+			text: `${refused.length} module(s) not loaded: ${refused.map(r => r.name).join(', ')}. mod list shows why`,
+			detail: terminalText(refused[0]!.reasons[0]!, 300),
+		});
+	}
 	registerModuleHooks({
 		roots: overlayDir === undefined ? [modulesDir] : [modulesDir, overlayDir],
 		winners: new Map(modules.map(m => [m.manifest.name, m.dir])),
 		hostRoot: root,
 		...(overlayDir !== undefined && {overlay: overlayDir}),
 	});
-	return modules;
+	return loadable;
 }
 
 async function hostVersion(): Promise<string> {

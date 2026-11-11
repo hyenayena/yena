@@ -9,7 +9,7 @@ test('mod asks for confirmation by default', () => {
 
 test('mod subcommand agent policies', () => {
 	const policies = Object.fromEntries((modCommand.subcommands ?? []).map(s => [s.name, s.agent]));
-	assert.deepEqual(policies, {install: 'confirm', update: 'confirm', remove: 'confirm', list: 'safe'});
+	assert.deepEqual(policies, {install: 'confirm', update: 'confirm', remove: 'confirm', fix: 'confirm', lock: 'confirm', list: 'safe'});
 });
 
 test('mod install splits --account off the sources', async () => {
@@ -34,4 +34,13 @@ test('mod without a subcommand shows the help through ctx.showHelp, or prints th
 	assert.deepEqual(lines, []);
 	await modCommand.run([], {print} as unknown as CommandContext);
 	assert.deepEqual(lines, ['mod <subcommand>']);
+});
+
+test('mod fix takes --ranges and --yes and nothing else', async () => {
+	const {parseFixArgs} = await import('../../src/pm/fix.js');
+	assert.deepEqual(parseFixArgs([]), {yes: false, ranges: false});
+	assert.deepEqual(parseFixArgs(['--yes']), {yes: true, ranges: false});
+	assert.deepEqual(parseFixArgs(['--ranges', '--yes']), {yes: true, ranges: true});
+	assert.throws(() => parseFixArgs(['--force']), /Unknown option "--force"/);
+	assert.throws(() => parseFixArgs(['chat']), /takes no arguments/);
 });

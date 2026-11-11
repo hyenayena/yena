@@ -47,7 +47,7 @@ Details: the `claude` module README, section "Policy caveat".
 
 - `./yena dev check [suite…]` typechecks and tests the host and the modules (`host` and module names; none = all).
 - In dev mode (`mode dev` in the app) yena starts from this checkout, so code changes apply after a restart; otherwise they reach the image with `./yena build` and `./yena rebuild`.
-- Modules live in `modules/` (gitignored), one repository each under [github.com/hyenayena](https://github.com/hyenayena); `mod install|update|remove|list` manages them.
+- Modules live in `modules/` (gitignored), one repository each under [github.com/hyenayena](https://github.com/hyenayena); `mod install|update|remove|list|fix|lock` manages them.
 
 ## License
 

@@ -47,10 +47,11 @@ export function checkModules(root: string): string[] {
 		? readdirSync(modulesDir).filter(n => existsSync(path.join(modulesDir, n, 'yena.json'))).sort()
 		: [];
 	const problems: string[] = [];
-	const declared = new Map<string, string[]>();
+	const declared = new Map<string, Record<string, {optional?: boolean}>>();
+	const declaredNames = (name: string) => Object.keys(declared.get(name) ?? {});
 	for (const name of names) {
-		const manifest = JSON.parse(readFileSync(path.join(modulesDir, name, 'yena.json'), 'utf8')) as {dependencies?: Record<string, string>};
-		declared.set(name, Object.keys(manifest.dependencies ?? {}));
+		const manifest = JSON.parse(readFileSync(path.join(modulesDir, name, 'yena.json'), 'utf8')) as {dependencies?: Record<string, {optional?: boolean}>};
+		declared.set(name, manifest.dependencies ?? {});
 	}
 	const publicOf = (name: string) => (PUBLIC[name] ?? DEFAULT_PUBLIC).map(p => path.join(modulesDir, name, p));
 
@@ -85,15 +86,15 @@ export function checkModules(root: string): string[] {
 					}
 					if (!publicOf(other).includes(toTs(target))) problems.push(`${where} is not ${other}'s public entry`);
 					if (!adapter) problems.push(`${where}: only adapter files (src/deps/*.ts) import other modules`);
-					if (ref.kind === 'url') continue;
-					if (ref.kind === 'dynamic' || ref.kind === 'static') {
-						if (!declared.get(name)?.includes(other)) problems.push(`${where}: ${other} is not in ${name}'s yena.json dependencies`);
-						used.add(other);
-					}
+					const dep = declared.get(name)?.[other];
+					if (!dep) problems.push(`${where}: ${other} is not in ${name}'s yena.json dependencies`);
+					else if (ref.kind === 'url' && dep.optional !== true) problems.push(`${where}: ${other} is loaded at runtime, so ${name}'s yena.json must declare it with "optional": true`);
+					else if (ref.kind !== 'url' && dep.optional === true) problems.push(`${where}: ${other} is imported statically, so ${name}'s yena.json must not declare it optional`);
+					used.add(other);
 				}
 			}
 		}
-		for (const dep of declared.get(name) ?? []) {
+		for (const dep of declaredNames(name)) {
 			if (!names.includes(dep)) continue;
 			if (!used.has(dep)) problems.push(`${name}/yena.json: dependency ${dep} is declared but never imported`);
 		}
@@ -107,7 +108,7 @@ export function checkModules(root: string): string[] {
 			return;
 		}
 		state.set(n, 'open');
-		for (const d of declared.get(n) ?? []) if (names.includes(d)) visit(d, [...trail, n]);
+		for (const d of declaredNames(n)) if (names.includes(d)) visit(d, [...trail, n]);
 		state.set(n, 'done');
 	};
 	for (const n of names) visit(n, []);
@@ -158,11 +159,16 @@ describe('module boundaries', () => {
 		mkdirSync(path.join(a, b), {recursive: true});
 		return path.join(a, b);
 	};
-	const manifest = (deps: string[] = []) => JSON.stringify({name: 'x', version: '0.0.0', dependencies: Object.fromEntries(deps.map(d => [d, 'git@x:y.git']))});
+	const manifest = (deps: string[] = [], optional: string[] = []) =>
+		JSON.stringify({
+			name: 'x',
+			version: '0.0.0',
+			dependencies: Object.fromEntries([...deps.map(d => [d, {source: d, version: '^0.0.0'}]), ...optional.map(d => [d, {source: d, version: '^0.0.0', optional: true}])]),
+		});
 
 	it('accept adapters into public entries, host types and optional URL imports', () => {
 		const dir = make({
-			'modules/a/yena.json': manifest(['b']),
+			'modules/a/yena.json': manifest(['b'], ['c']),
 			'modules/a/src/index.ts': "import type {X} from '../../../src/api.js';\nimport {f} from './deps/b.js';\n",
 			'modules/a/src/deps/b.ts': "export {f} from '../../../b/src/public.js';\n",
 			'modules/a/src/deps/c.ts': "const u = new URL('../../../c/src/public.ts', import.meta.url);\n",
@@ -173,6 +179,26 @@ describe('module boundaries', () => {
 			'modules/c/src/public.ts': 'export const h = 1;\n',
 		});
 		assert.deepEqual(checkModules(dir), []);
+	});
+
+	it('require a runtime-loaded dependency to be optional and an optional one not to be imported', () => {
+		const dir = make({
+			'modules/a/yena.json': manifest(['b', 'c'], []),
+			'modules/a/src/deps/b.ts': "export {f} from '../../../b/src/public.js';\n",
+			'modules/a/src/deps/c.ts': "const u = new URL('../../../c/src/public.ts', import.meta.url);\n",
+			'modules/b/yena.json': manifest(),
+			'modules/b/src/public.ts': 'export const f = 1;\n',
+			'modules/c/yena.json': manifest(),
+			'modules/c/src/public.ts': 'export const h = 1;\n',
+		});
+		assert.match(checkModules(dir).join('\n'), /a\/src\/deps\/c\.ts: .*c is loaded at runtime.*"optional": true/);
+		const other = make({
+			'modules/a/yena.json': manifest([], ['b']),
+			'modules/a/src/deps/b.ts': "export {f} from '../../../b/src/public.js';\n",
+			'modules/b/yena.json': manifest(),
+			'modules/b/src/public.ts': 'export const f = 1;\n',
+		});
+		assert.match(checkModules(other).join('\n'), /a\/src\/deps\/b\.ts: .*b is imported statically.*not declare it optional/);
 	});
 
 	it('accept a UI entry src/public-ui.ts through an adapter', () => {

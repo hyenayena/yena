@@ -94,3 +94,22 @@ test('mod list prints styled blocks, or plain lines without printStyled', async 
 	await modCommand.run(['list'], plain.ctx);
 	assert.ok(plain.printed.some(l => l.startsWith('core  0.14.0  ') && l.endsWith('Core UI')), plain.printed.join('|'));
 });
+
+test('an active copy outside its dependency range is listed as not loaded with the reason', async () => {
+	await mkdir(path.join(home, 'modules', 'needy'), {recursive: true});
+	await writeFile(
+		path.join(home, 'modules', 'needy', 'yena.json'),
+		JSON.stringify({name: 'needy', version: '1.0.0', dependencies: {core: {source: 'core', version: '^0.15.0'}}}),
+	);
+	const {list} = await import('../../src/pm/manager.js');
+	const rows = await list();
+	const needy = rows.find(r => r.name === 'needy')!;
+	assert.equal(needy.state, 'incompatible');
+	assert.equal(needy.error, 'needy needs core ^0.15.0, installed 0.14.0; run "mod update core"');
+	assert.equal(rows.find(r => r.name === 'core')!.state, 'untracked');
+	const blocks = modListBlocks(rows, undefined, false);
+	const table = blocks[0]!;
+	if (table.kind !== 'table') throw new Error('expected a table');
+	assert.ok(table.rows.some(r => JSON.stringify(r).includes('{"text":"not loaded","tone":"error"}')));
+	assert.ok(plainBlockLines(blocks).includes('needy: needy needs core ^0.15.0, installed 0.14.0; run "mod update core"'));
+});

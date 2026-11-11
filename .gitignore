@@ -5,7 +5,6 @@ dist/
 *.log
 modules/
 .env
-yena-modules.json
 
 # Claude Code's Bash sandbox shows these as placeholders in the folder it runs from
 .claude/

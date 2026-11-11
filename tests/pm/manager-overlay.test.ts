@@ -57,7 +57,7 @@ test('a newer or equal overlay copy shadows the image; an older one is skipped w
 });
 
 test('dependencies already in the image are not installed again', async () => {
-	await install([await source('needs-core', '1.0.0', {dependencies: {core: 'core'}})], log);
+	await install([await source('needs-core', '1.0.0', {dependencies: {core: {source: 'core', version: '^1.0.0'}}})], log);
 	assert.ok(!existsSync(path.join(overlay, 'core')));
 });
 
