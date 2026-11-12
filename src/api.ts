@@ -79,6 +79,10 @@ export type CommandRunStatus = 'ok' | 'error' | 'invalid' | 'unknown' | 'denied'
 
 export type CommandRunResult = {status: CommandRunStatus; output: string; truncated: boolean; ms: number; reason?: string};
 
+export type CommandErrorKind = 'usage' | 'not-found' | 'not-isolated' | 'invalid' | 'failed';
+
+export type CommandError = Error & {kind: CommandErrorKind};
+
 export type CommandBridge = {
 	list(): CommandInfo[];
 	run(req: CommandRunRequest): Promise<CommandRunResult>;

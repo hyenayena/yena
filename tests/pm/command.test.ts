@@ -44,3 +44,10 @@ test('mod fix takes --ranges and --yes and nothing else', async () => {
 	assert.throws(() => parseFixArgs(['--force']), /Unknown option "--force"/);
 	assert.throws(() => parseFixArgs(['chat']), /takes no arguments/);
 });
+
+test('wrong line shapes are usage errors', async () => {
+	const ctx: CommandContext = {print() {}, clear() {}, exit() {}};
+	const usage = (error: Error & {kind?: string}) => error.kind === 'usage';
+	await assert.rejects(Promise.resolve(modCommand.run(['nope'], ctx)), usage);
+	await assert.rejects(Promise.resolve(modCommand.run(['lock', 'x'], ctx)), usage);
+});

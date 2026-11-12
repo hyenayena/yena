@@ -17,8 +17,8 @@
 		},
 		"core": {
 			"source": "core",
-			"version": "0.22.3",
-			"commit": "d4d7bda0e0709c3f2421899121abf3e0aab5c624"
+			"version": "0.22.4",
+			"commit": "5886a3e0fea6c1ac5ccd0a395b5602043884eced"
 		},
 		"dev": {
 			"source": "dev",
@@ -37,8 +37,8 @@
 		},
 		"project": {
 			"source": "project",
-			"version": "0.4.1",
-			"commit": "db22fc23b483e115b184fcb4e6d89189655f7307"
+			"version": "0.4.2",
+			"commit": "9f5ab9f203a1e58e006a0ac9113a4f263056e4f0"
 		},
 		"scheduler": {
 			"source": "scheduler",
@@ -47,8 +47,8 @@
 		},
 		"task": {
 			"source": "task",
-			"version": "0.10.0",
-			"commit": "2856c7c3dc7b6a3e861bcf297716cbce3be4085e"
+			"version": "0.10.1",
+			"commit": "000e90da3e8a2a523b2bb2f7893f56c0123042f5"
 		}
 	}
 }

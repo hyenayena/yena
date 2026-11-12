@@ -1,5 +1,6 @@
 import type {Command, SettingsTab, Subcommand} from './api.js';
 import {checkDevRoot, readMode, runningMode, writeMode, type ModeState, type RootMode} from './mode.js';
+import {usageError} from './usage-error.js';
 
 export type ModeCommandOptions = {
 	stateDir: string;
@@ -74,8 +75,8 @@ export async function createModeCommand(opts: ModeCommandOptions): Promise<Comma
 				}
 				case 'image':
 				case 'dev': {
-					if (sub === 'image' && args.length > 0) throw new Error('mode image takes no arguments');
-					if (args.length > 1) throw new Error('mode dev takes at most one path');
+					if (sub === 'image' && args.length > 0) throw usageError('mode image takes no arguments');
+					if (args.length > 1) throw usageError('mode dev takes at most one path');
 					await save(sub, args[0]);
 					log(`Start from: ${where(state.mode, state)}. ${state.mode === running() ? 'Already running so.' : NEXT_START}`);
 					return;
@@ -83,7 +84,7 @@ export async function createModeCommand(opts: ModeCommandOptions): Promise<Comma
 				case 'help':
 					return ctx.showHelp ? ctx.showHelp() : log(USAGE);
 				default:
-					throw new Error(`Unknown subcommand "${sub}". See mode help`);
+					throw usageError(`Unknown subcommand "${sub}". See mode help`);
 			}
 		},
 	};

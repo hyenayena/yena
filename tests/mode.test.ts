@@ -113,3 +113,8 @@ test('mode help goes to core through ctx.showHelp, or prints the usage without i
 	await cmd.run(['help'], plain.ctx);
 	assert.deepEqual(plain.lines, ['mode [subcommand]']);
 });
+
+test('an unknown subcommand is a usage error', async () => {
+	const cmd = await createModeCommand({stateDir: await temp('yena-mode-'), codeRoot: '/app', writable: true});
+	await assert.rejects(Promise.resolve(cmd.run(['nope'], ctx().ctx)), (error: Error & {kind?: string}) => error.kind === 'usage');
+});

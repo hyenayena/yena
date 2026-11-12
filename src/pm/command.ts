@@ -1,6 +1,7 @@
 import type {Command, StyledBlock, StyledCell, StyledSpan, Subcommand} from '../api.js';
 import {readImageRecord} from './bake.js';
 import {fixVersions, parseFixArgs} from './fix.js';
+import {usageError} from '../usage-error.js';
 import {install, list, lockRoot, overlayEnabled, remove, update, type ModuleStatus} from './manager.js';
 
 const subcommands: Subcommand[] = [
@@ -75,16 +76,16 @@ export function parseInstallArgs(args: string[]): {specs: string[]; account?: st
 		const arg = args[i]!;
 		if (arg === '--account') {
 			const name = args[++i];
-			if (name === undefined || name.startsWith('-')) throw new Error('--account needs an account name');
-			if (account !== undefined) throw new Error('--account is given more than once');
+			if (name === undefined || name.startsWith('-')) throw usageError('--account needs an account name');
+			if (account !== undefined) throw usageError('--account is given more than once');
 			account = name;
 		} else if (arg.startsWith('-')) {
-			throw new Error(`Unknown option "${arg}". See mod help install`);
+			throw usageError(`Unknown option "${arg}". See mod help install`);
 		} else {
 			specs.push(arg);
 		}
 	}
-	if (account !== undefined && specs.length === 0) throw new Error('--account needs the modules to install');
+	if (account !== undefined && specs.length === 0) throw usageError('--account needs the modules to install');
 	return {specs, ...(account !== undefined && {account})};
 }
 
@@ -175,7 +176,7 @@ export const modCommand: Command = {
 			case 'fix':
 				return fixVersions(parseFixArgs(args), log);
 			case 'lock':
-				if (args.length > 0) throw new Error('mod lock takes no arguments');
+				if (args.length > 0) throw usageError('mod lock takes no arguments');
 				return lockRoot(log);
 			case 'list':
 			case 'ls': {
@@ -188,7 +189,7 @@ export const modCommand: Command = {
 			case 'help':
 				return ctx.showHelp ? ctx.showHelp() : log(USAGE);
 			default:
-				throw new Error(`Unknown subcommand "${sub}". See mod help`);
+				throw usageError(`Unknown subcommand "${sub}". See mod help`);
 		}
 	},
 };

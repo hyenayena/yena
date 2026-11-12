@@ -1,6 +1,7 @@
 import {readFile, realpath, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {terminalText} from '../log/sanitize.js';
+import {usageError} from '../usage-error.js';
 import {installPinned, installedModules, lockEntries, modulesDir, overlayDir, type LockInfo, type PinnedItem} from './manager.js';
 import {parseManifest, type Manifest} from './manifest.js';
 import {compareVersions} from './overlay.js';
@@ -17,8 +18,8 @@ export function parseFixArgs(args: string[]): FixOptions {
 	for (const arg of args) {
 		if (arg === '--yes') options.yes = true;
 		else if (arg === '--ranges') options.ranges = true;
-		else if (arg.startsWith('-')) throw new Error(`Unknown option "${arg}". See mod help fix`);
-		else throw new Error(`mod fix takes no arguments, got "${arg}". See mod help fix`);
+		else if (arg.startsWith('-')) throw usageError(`Unknown option "${arg}". See mod help fix`);
+		else throw usageError(`mod fix takes no arguments, got "${arg}". See mod help fix`);
 	}
 	return options;
 }
