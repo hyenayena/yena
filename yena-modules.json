@@ -37,8 +37,8 @@
 		},
 		"project": {
 			"source": "project",
-			"version": "0.4.2",
-			"commit": "9f5ab9f203a1e58e006a0ac9113a4f263056e4f0"
+			"version": "0.4.3",
+			"commit": "3978f6e11d566f0b9093b4f427707777985d5f9f"
 		},
 		"scheduler": {
 			"source": "scheduler",
@@ -47,8 +47,8 @@
 		},
 		"task": {
 			"source": "task",
-			"version": "0.10.1",
-			"commit": "000e90da3e8a2a523b2bb2f7893f56c0123042f5"
+			"version": "0.10.2",
+			"commit": "ff9f99b5066f66c43e17a84c7c099c9197b9c6bc"
 		}
 	}
 }
