@@ -4,6 +4,10 @@ FROM node:24-alpine
 # applets, which lack downloads and grep -P / --include; python3 runs the chat's scripts and tools (packages go
 # into a venv under /tmp or a project: the image is read-only and Alpine's pip refuses system installs, PEP 668)
 RUN apk add --no-cache git openssh-client bash ripgrep bubblewrap socat curl grep python3 py3-pip
+# Python libraries for the chat's small dev scripts, installed from apk because pip cannot write to the system
+# Python (PEP 668); anything else still goes into a venv. jq and ruff are standalone binaries.
+RUN apk add --no-cache jq ruff py3-requests py3-yaml py3-rich py3-dateutil py3-jinja2 py3-tabulate py3-click \
+	py3-beautifulsoup4 py3-psutil py3-pexpect py3-wcwidth py3-tqdm py3-markdown py3-pygments py3-pytest
 # GitHub's published host keys (docs.github.com, "GitHub's SSH key fingerprints"), so ssh to github.com is
 # verified on a fresh container without mounting the host's known_hosts. Rebuild the image if GitHub rotates them.
 RUN printf '%s\n' \
