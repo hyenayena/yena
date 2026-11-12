@@ -84,7 +84,7 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 	try {
 		sink = openSink({
 			dir,
-			maxBytes: opts.maxBytes ?? 1024 * 1024,
+			maxBytes: opts.maxBytes ?? 4 * 1024 * 1024,
 			generations: opts.generations ?? 3,
 			io: opts.io,
 			dropNotice: n => render('warn', 'log', `log: ${n} records dropped`),

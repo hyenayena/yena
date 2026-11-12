@@ -223,7 +223,7 @@ test('loaded and skipped plugins are logged, console text unchanged', async () =
 	const {logs} = await load(modules, base, {logger});
 	assert.deepEqual(logs, ['plugin "b" skipped: boom']);
 	const loaded = recs.find(r => r.msg === 'plugin loaded');
-	assert.equal(loaded?.level, 'info');
+	assert.equal(loaded?.level, 'debug');
 	assert.deepEqual(loaded?.fields?.commands, ['a-cmd']);
 	const skipped = recs.find(r => r.msg === 'plugin skipped');
 	assert.equal(skipped?.level, 'warn');

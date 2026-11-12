@@ -7,13 +7,13 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.5.5",
-			"commit": "44ce4d78b575b7335ccb0a78cd9a65541716503f"
+			"version": "0.5.6",
+			"commit": "75a5edfc57d97ca202adb18a484078344bc5eb1c"
 		},
 		"claude": {
 			"source": "claude",
-			"version": "0.34.3",
-			"commit": "6d4ca3f61e8e215d6c279c3c591e91f960654bac"
+			"version": "0.34.4",
+			"commit": "1b793b2c11d1c9b9e53131ef2126d044b6185bcb"
 		},
 		"core": {
 			"source": "core",
@@ -22,8 +22,8 @@
 		},
 		"dev": {
 			"source": "dev",
-			"version": "0.7.0",
-			"commit": "946955625d60f628e1690d35c7a2a8fb2a67dcf5"
+			"version": "0.7.1",
+			"commit": "d16ccfd128486b981abdde86c3560ae3099c887d"
 		},
 		"http": {
 			"source": "http",

@@ -87,7 +87,7 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 			}
 			for (const c of commands) taken.add(c.name);
 			accepted.push(...commands);
-			logger.info('plugin loaded', {module: manifest.name, commands: names(commands), ms: Date.now() - started});
+			logger.debug('plugin loaded', {module: manifest.name, commands: names(commands), ms: Date.now() - started});
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
 			logger.warn('plugin skipped', {module: manifest.name, reason});
