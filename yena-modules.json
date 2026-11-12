@@ -7,8 +7,8 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.5.4",
-			"commit": "7b7a140d175233d2843de5f529c0534f560d6095"
+			"version": "0.5.5",
+			"commit": "44ce4d78b575b7335ccb0a78cd9a65541716503f"
 		},
 		"claude": {
 			"source": "claude",
@@ -17,8 +17,8 @@
 		},
 		"core": {
 			"source": "core",
-			"version": "0.22.4",
-			"commit": "5886a3e0fea6c1ac5ccd0a395b5602043884eced"
+			"version": "0.22.5",
+			"commit": "85e91a72d0836dd891f669fec3f36d3df825d734"
 		},
 		"dev": {
 			"source": "dev",
