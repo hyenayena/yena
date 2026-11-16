@@ -2,53 +2,53 @@
 	"modules": {
 		"account": {
 			"source": "account",
-			"version": "0.8.1",
-			"commit": "49ed2091b2217b31d237f7279fac9d46b17aa169"
+			"version": "0.8.2",
+			"commit": "4805c9f52067b7e6863718764e9f338fd2feffaf"
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.5.6",
-			"commit": "75a5edfc57d97ca202adb18a484078344bc5eb1c"
+			"version": "0.5.7",
+			"commit": "488a3c51444a7e6a38779530160c50efe1480c14"
 		},
 		"claude": {
 			"source": "claude",
-			"version": "0.34.5",
-			"commit": "1c6e005f1db4803f2bc37aa91ae53ea1b4ca473b"
+			"version": "0.34.6",
+			"commit": "fdb82da136d1caa3ba1c08574f49313edb6d6731"
 		},
 		"core": {
 			"source": "core",
-			"version": "0.22.6",
-			"commit": "570eea4c697332778d92118ecfe717a805bcfba7"
+			"version": "0.22.7",
+			"commit": "a4cd082f24b245ebb3d934eec0eda8fb652828e4"
 		},
 		"dev": {
 			"source": "dev",
-			"version": "0.7.1",
-			"commit": "d16ccfd128486b981abdde86c3560ae3099c887d"
+			"version": "0.7.2",
+			"commit": "5220f24ed8371d573b05e18b70e2931e34ab1053"
 		},
 		"http": {
 			"source": "http",
-			"version": "0.4.1",
-			"commit": "bdf86ed0ecc0e6ff5cdff8432a964b63f61e6af1"
+			"version": "0.4.2",
+			"commit": "770b7aca6ca4a3aa369d46499ee1aec1676b5f66"
 		},
 		"md": {
 			"source": "md",
-			"version": "0.1.0",
-			"commit": "a4aa8c80ae2386dfb0e91d279411604b8e0190f9"
+			"version": "0.1.1",
+			"commit": "59b80203e17a20cef58abb6ba5722ede2320b9bc"
 		},
 		"project": {
 			"source": "project",
-			"version": "0.4.3",
-			"commit": "3978f6e11d566f0b9093b4f427707777985d5f9f"
+			"version": "0.4.4",
+			"commit": "877aa4c90c46984e4d8be5ab2d489bebc8c69020"
 		},
 		"scheduler": {
 			"source": "scheduler",
-			"version": "0.6.0",
-			"commit": "4d36e1861417c0a8770be527f99bc4936e40aa2b"
+			"version": "0.6.1",
+			"commit": "d511300e121e8b39c7241d2a30338fa36eae1fef"
 		},
 		"task": {
 			"source": "task",
-			"version": "0.10.2",
-			"commit": "ff9f99b5066f66c43e17a84c7c099c9197b9c6bc"
+			"version": "0.10.3",
+			"commit": "3cf0d92d6d4611945ad44ef65c1b3fcf13fec9fd"
 		}
 	}
 }
