@@ -12,8 +12,8 @@
 		},
 		"claude": {
 			"source": "claude",
-			"version": "0.34.4",
-			"commit": "1b793b2c11d1c9b9e53131ef2126d044b6185bcb"
+			"version": "0.34.5",
+			"commit": "1c6e005f1db4803f2bc37aa91ae53ea1b4ca473b"
 		},
 		"core": {
 			"source": "core",
