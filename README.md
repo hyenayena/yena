@@ -6,11 +6,22 @@ yena is an independent project. It is not made, endorsed or supported by Anthrop
 
 ## Requirements
 
+- git
 - Docker with Compose v2
 - A POSIX shell (Linux or macOS)
 - An Anthropic API key (recommended), or your own Claude subscription (see [Anthropic's rules](#anthropics-rules))
 
 ## Quick start
+
+One command installs yena (it needs the requirements above; the Docker daemon must be running):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/hyenayena/yena/develop/install.sh | sh
+```
+
+The installer checks git, Docker and Compose, asks for your projects folder (default `~/Projects`; `YENA_WORKPLACE=<dir>` presets it and skips the question), clones yena into `<folder>/yena`, builds the image and adds the `yena` command in `~/.local/bin`. Run it again to update: it fast-forwards the checkout (not when it has local changes or has diverged) and rebuilds the image; a running yena stops.
+
+Or by hand:
 
 ```sh
 git clone https://github.com/hyenayena/yena.git
