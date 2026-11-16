@@ -14,6 +14,7 @@ import {modCommand} from './pm/command.js';
 import {install, moduleDataDir, RefusedInstall, modulesDir, overlayDir, resolveModules, root, stateDir, type ResolvedModule} from './pm/manager.js';
 import type {Manifest} from './pm/manifest.js';
 import {registerModuleHooks} from './pm/module-hooks.js';
+import {createModuleRegistry} from './pm/registry.js';
 import {resolveInside} from './pm/paths.js';
 import {loadPlugins} from './pm/plugins.js';
 import {loadableModules} from './pm/versions.js';
@@ -162,6 +163,7 @@ async function main() {
 	logger.info('modules discovered', {
 		modules: modules.map(m => ({name: m.manifest.name, version: m.manifest.version, runtime: m.manifest.runtime, origin: m.origin})),
 	});
+	const build = await buildInfo(modules);
 	const plugins = await loadPlugins({
 		modules,
 		host: {commands: hostCommands},
@@ -169,7 +171,7 @@ async function main() {
 		dataDirFor: moduleDataDir,
 		log: line => console.warn(`Warning: ${line}`),
 		logger,
-		build: await buildInfo(modules),
+		build,
 		devFailure: () => publicDevFailure(stateDir),
 		credentials,
 	});
@@ -179,6 +181,8 @@ async function main() {
 		dataDir: await moduleDataDir(manifest.name),
 		events,
 		log: logger.child('core'),
+		modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules')}),
+		build,
 		...(alerts.length > 0 && {alerts}),
 	});
 	await markReady();
@@ -193,6 +197,7 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 	if (typeof mod.default !== 'function') throw new Error(`${manifest.headless} must export a default function`);
 
 	const events = createEventBus();
+	const build = await buildInfo(modules);
 	const plugins = await loadPlugins({
 		modules,
 		host: {commands: hostCommands},
@@ -200,7 +205,7 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 		dataDirFor: moduleDataDir,
 		log: line => console.warn(`Warning: ${line}`),
 		logger,
-		build: await buildInfo(modules),
+		build,
 		devFailure: () => publicDevFailure(stateDir),
 		credentials,
 	});
@@ -214,6 +219,8 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 				dataDir: await moduleDataDir(manifest.name),
 				events,
 				log: logger.child('core'),
+				modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules')}),
+				build,
 			},
 			catalogMode ? {args: [], catalog: true} : {args: runArgs},
 		);

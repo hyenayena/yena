@@ -1,6 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import type {CredentialAccess} from '../api.js';
+import type {CredentialAccess, ModuleExportRules} from '../api.js';
+import {parseExportRules} from './export-rules.js';
 import {parseRange} from './versions.js';
 
 export const MANIFEST_FILE = 'yena.json';
@@ -17,10 +18,12 @@ export type Manifest = {
 	headless?: string;
 	dependencies: Record<string, Dependency>;
 	credentials?: Record<string, CredentialAccess>;
+	export?: ModuleExportRules;
+	host?: string;
 };
 
 const DEP_FIELDS = new Set(['source', 'version', 'optional']);
-const NAME = /^[a-z0-9][a-z0-9._-]*$/;
+export const MODULE_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const KIND = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const MAX_KINDS = 20;
 
@@ -55,7 +58,7 @@ function validate(data: unknown): Manifest {
 	if (typeof data !== 'object' || data === null || Array.isArray(data)) fail('expected an object');
 	const m = data as Record<string, unknown>;
 
-	if (typeof m.name !== 'string' || !NAME.test(m.name)) {
+	if (typeof m.name !== 'string' || !MODULE_NAME.test(m.name)) {
 		fail('"name" is required: lowercase letters, digits, ".", "_" or "-"');
 	}
 	if (RESERVED_NAMES.has(m.name as string)) fail(`"name" "${m.name as string}" is reserved by yena`);
@@ -71,7 +74,7 @@ function validate(data: unknown): Manifest {
 	}
 	const deps: Record<string, Dependency> = {};
 	for (const [name, value] of Object.entries(rawDeps as object)) {
-		if (!NAME.test(name)) fail(`invalid dependency "${name}"`);
+		if (!MODULE_NAME.test(name)) fail(`invalid dependency "${name}"`);
 		if (name === m.name) fail(`"${name}" cannot depend on itself`);
 		const noVersion = `dependency "${name}" has no version; write {"source": "${name}", "version": "^x.y.z"}`;
 		if (typeof value === 'string') fail(noVersion);
@@ -98,6 +101,18 @@ function validate(data: unknown): Manifest {
 		if (!KIND.test(kind) || (access !== 'read' && access !== 'write')) fail(`invalid credentials "${kind}"`);
 	}
 
+	let exportRules: ModuleExportRules | undefined;
+	if (m.export !== undefined) {
+		try {
+			exportRules = parseExportRules(m.export);
+		} catch (error) {
+			fail((error as Error).message);
+		}
+	}
+	if (m.host !== undefined && (typeof m.host !== 'string' || !parseRange(m.host))) {
+		fail('"host" must be a version range: "^x.y.z" or "x.y.z"');
+	}
+
 	return {
 		name: m.name as string,
 		version: m.version as string,
@@ -108,5 +123,7 @@ function validate(data: unknown): Manifest {
 		headless: m.headless as string | undefined,
 		dependencies: deps,
 		credentials: Object.fromEntries(kinds) as Record<string, CredentialAccess>,
+		...(exportRules && {export: exportRules}),
+		...(m.host !== undefined && {host: m.host as string}),
 	};
 }

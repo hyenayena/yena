@@ -105,3 +105,9 @@ export function loadableModules<T extends {manifest: Pick<Manifest, 'name' | 've
 		refused: [...reasons].map(([name, list]) => ({name, reasons: list})).sort((a, b) => a.name.localeCompare(b.name)),
 	};
 }
+
+export const INSTALL_SH = 'curl -fsSL https://raw.githubusercontent.com/hyenayena/yena/develop/install.sh | sh';
+
+export function hostRangeProblem(name: string, version: string, range: string, hostVersion: string): string {
+	return `${name} ${version} needs yena ${range}, this yena is ${hostVersion}. Update yena first with install.sh (${INSTALL_SH}), then import again`;
+}

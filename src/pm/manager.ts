@@ -1,9 +1,11 @@
 import {randomUUID} from 'node:crypto';
-import {cp, mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises';
+import {chmod, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
+import type {ModuleDataFile} from '../api.js';
 import {hostLog} from '../log/index.js';
 import {readManifest, RESERVED_NAMES, type Manifest} from './manifest.js';
-import {dependencyProblems, loadableModules, problemKey, problemText, satisfies, type DependencyProblem, type ModuleVersion} from './versions.js';
+import {pathProblem} from './module-data.js';
+import {dependencyProblems, hostRangeProblem, loadableModules, problemKey, problemText, satisfies, type DependencyProblem, type ModuleVersion} from './versions.js';
 import {gitSshFor} from './git-ssh.js';
 import {compareVersions, pickCopy, type Copy, type ModuleOrigin} from './overlay.js';
 import {run, type Log} from './run.js';
@@ -97,6 +99,8 @@ type Staged = {
 	manifest: Manifest;
 	commit: string | undefined;
 	account: string | undefined;
+	carried?: boolean;
+	npmInstall?: boolean;
 };
 
 type Session = {
@@ -116,9 +120,10 @@ type StageOptions = {
 	pinCommit?: string;
 	account?: string;
 	current?: string;
+	noDeps?: boolean;
 };
 
-async function stageOne(spec: string, s: Session, {pinCommit, account, current}: StageOptions = {}): Promise<Manifest> {
+async function stageOne(spec: string, s: Session, {pinCommit, account, current, noDeps}: StageOptions = {}): Promise<Manifest> {
 	const trace = pmLog();
 	const src = parseSource(spec, root, {ssh: account !== undefined});
 	if (pinCommit && src.kind === 'git') src.ref = pinCommit;
@@ -144,6 +149,7 @@ async function stageOne(spec: string, s: Session, {pinCommit, account, current}:
 		return manifest;
 	}
 	s.staged.set(manifest.name, {name: manifest.name, spec, staging, manifest, commit, account});
+	if (noDeps) return manifest;
 
 	const have = new Map(s.resolved.map(m => [m.manifest.name, m.manifest]));
 	for (const [dep, d] of Object.entries(manifest.dependencies)) {
@@ -200,20 +206,31 @@ export async function plannedVersions(staged: readonly {name: string; dir: strin
 
 export class RefusedInstall extends Error {}
 
-export function refusalText(problems: readonly DependencyProblem[], versionOf: (name: string) => string | undefined): string {
-	const parts = problems.map(p => {
+function refusalParts(problems: readonly DependencyProblem[], versionOf: (name: string) => string | undefined): string[] {
+	return problems.map(p => {
 		const head = `${p.dependent} needs ${p.dependency} ${p.range}`;
 		const v = versionOf(p.dependency);
 		return v === undefined ? `${head}, which would not be installed` : `${head}, ${p.dependency} would be ${v}`;
 	});
+}
+
+export function refusalText(problems: readonly DependencyProblem[], versionOf: (name: string) => string | undefined): string {
+	const parts = refusalParts(problems, versionOf);
 	const names = [...new Set(problems.flatMap(p => [p.dependency, p.dependent]))];
 	return `Refused, nothing was changed: ${parts.join('; ')}. Run "mod fix" to find compatible versions, or update them together (mod update ${names.join(' ')})`;
 }
 
-async function applyStaged(s: Session) {
+const NPM_INSTALL = ['npm', 'install', '--prefix', '.', '--omit=dev', '--no-audit', '--no-fund'];
+
+type ApplyOptions = {after?: (staged: Map<string, Manifest>) => Promise<void>; exec?: typeof run};
+
+async function applyStaged(s: Session, {after, exec = run}: ApplyOptions = {}) {
 	const trace = pmLog();
 	const staged = dependencyOrder([...s.staged.values()]);
-	if (staged.length === 0) return;
+	if (staged.length === 0) {
+		await after?.(new Map());
+		return;
+	}
 
 	for (const st of staged) {
 		if (await exists(path.join(installDir, st.name, '.git'))) {
@@ -245,7 +262,19 @@ async function applyStaged(s: Session) {
 			rec.placed = true;
 			trace.info('swapped into place', {module: st.name, replaced: rec.moved});
 			const script = st.manifest.install;
-			if (!script) continue;
+			if (!script) {
+				if (st.npmInstall) {
+					s.log(`  $ ${NPM_INSTALL.join(' ')}`);
+					const npmStarted = Date.now();
+					trace.info('npm install started', {module: st.name});
+					try {
+						await exec('npm', NPM_INSTALL.slice(1), {cwd: target, log: s.log, trace, scrubEnv: true});
+					} finally {
+						trace.info('npm install finished', {module: st.name, ms: Date.now() - npmStarted});
+					}
+				}
+				continue;
+			}
 			s.log(`  $ ${script}`);
 			const started = Date.now();
 			trace.info('install script started', {module: st.name});
@@ -255,6 +284,7 @@ async function applyStaged(s: Session) {
 				trace.info('install script finished', {module: st.name, ms: Date.now() - started});
 			}
 		}
+		await after?.(new Map(staged.map(st => [st.name, st.manifest])));
 	} catch (error) {
 		trace.warn('rolling back', {modules: swapped.length, err: error});
 		const failed: string[] = [];
@@ -274,7 +304,8 @@ async function applyStaged(s: Session) {
 	}
 
 	for (const st of staged) {
-		s.lock.modules[st.name] = {source: st.spec, version: st.manifest.version, commit: st.commit, ...(st.account !== undefined && {account: st.account})};
+		if (st.carried) delete s.lock.modules[st.name];
+		else s.lock.modules[st.name] = {source: st.spec, version: st.manifest.version, commit: st.commit, ...(st.account !== undefined && {account: st.account})};
 	}
 	await writeLock(s.lock);
 	trace.info('lock written', {modules: staged.length});
@@ -359,6 +390,116 @@ export async function installPinned(items: readonly PinnedItem[], log: Log) {
 			await stageOne(spec, s, {...(commit !== undefined && {pinCommit: commit}), ...(account !== undefined && {account})});
 		}
 		await applyStaged(s);
+	});
+}
+
+export type AlignItem =
+	| {name: string; version: string; spec: string; commit: string; account?: string}
+	| {name: string; version: string; files: readonly ModuleDataFile[]};
+
+export type AlignOptions = {hostVersion?: string; exec?: typeof run};
+
+async function hasRuntimeDependencies(dir: string): Promise<boolean> {
+	try {
+		const pkg = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')) as {dependencies?: unknown};
+		const deps = pkg.dependencies;
+		return typeof deps === 'object' && deps !== null && Object.keys(deps).length > 0;
+	} catch {
+		return false;
+	}
+}
+
+async function stageFiles(item: {name: string; version: string; files: readonly ModuleDataFile[]}, s: Session, problems: string[]) {
+	for (const file of item.files) {
+		const problem = pathProblem(file.path);
+		if (problem) {
+			problems.push(`${item.name}: a file path in the export ${problem}`);
+			return;
+		}
+	}
+	await mkdir(installDir, {recursive: true});
+	const staging = path.join(installDir, `.staging-${randomUUID()}`);
+	s.stagings.push(staging);
+	await mkdir(staging, {mode: 0o755});
+	for (const file of item.files) {
+		const abs = path.join(staging, ...file.path.split('/'));
+		await mkdir(path.dirname(abs), {recursive: true, mode: 0o755});
+		await writeFile(abs, file.data, {flag: 'wx', mode: file.mode & 0o777});
+		await chmod(abs, file.mode & 0o777);
+	}
+	let manifest: Manifest;
+	try {
+		manifest = await readManifest(staging);
+	} catch (error) {
+		problems.push(`${item.name}: ${(error as Error).message}`);
+		return;
+	}
+	if (manifest.name !== item.name || manifest.version !== item.version) {
+		problems.push(`${item.name}: the packed yena.json says ${manifest.name}@${manifest.version}`);
+		return;
+	}
+	s.seen.add(manifest.name);
+	s.staged.set(manifest.name, {
+		name: manifest.name,
+		spec: '',
+		staging,
+		manifest,
+		commit: undefined,
+		account: undefined,
+		carried: true,
+		npmInstall: !manifest.install && (await hasRuntimeDependencies(staging)),
+	});
+	pmLog().info('files staged', {module: manifest.name, files: item.files.length});
+}
+
+export async function alignPinned(
+	items: readonly AlignItem[],
+	log: Log,
+	after: (staged: Map<string, Manifest>) => Promise<void>,
+	{hostVersion, exec}: AlignOptions = {},
+) {
+	pmLog().info('align started', {modules: items.length});
+	await withSession(log, async s => {
+		const problems: string[] = [];
+		for (const item of items) {
+			if ('files' in item) {
+				await stageFiles(item, s, problems);
+				continue;
+			}
+			const manifest = await stageOne(item.spec, s, {pinCommit: item.commit, noDeps: true, ...(item.account !== undefined && {account: item.account})});
+			if (manifest.name !== item.name) {
+				problems.push(`${item.name}: ${item.spec} at ${item.commit.slice(0, 7)} is named "${manifest.name}"`);
+			} else if (manifest.version !== item.version) {
+				problems.push(`${item.name}: commit ${item.commit.slice(0, 7)} has version ${manifest.version}, the export says ${item.version}`);
+			}
+		}
+
+		const stagedAll = [...s.staged.values()];
+		for (const st of stagedAll) {
+			if (hostVersion !== undefined && st.manifest.host !== undefined && !satisfies(hostVersion, st.manifest.host)) {
+				problems.push(hostRangeProblem(st.name, st.manifest.version, st.manifest.host, hostVersion));
+			}
+			if (overlayDir !== undefined) {
+				const image = await readManifest(path.join(modulesDir, st.name)).catch(() => undefined);
+				if (image && compareVersions(st.manifest.version, image.version) < 0) {
+					problems.push(`${st.name} ${st.manifest.version} cannot replace the image's ${image.version}: a newer image copy always wins`);
+				}
+			}
+		}
+		if (stagedAll.length > 0) {
+			const {planned} = await plannedVersions(stagedAll.map(st => ({name: st.name, dir: st.staging, manifest: st.manifest})));
+			const names = new Set(s.staged.keys());
+			const versions = new Map(planned.map(m => [m.name, m.version]));
+			const involved = dependencyProblems(planned).filter(p => names.has(p.dependent) || names.has(p.dependency));
+			problems.push(...refusalParts(involved, name => versions.get(name)));
+		}
+		if (problems.length > 0) {
+			pmLog().warn('align refused', {problems: problems.length});
+			throw new RefusedInstall(`Refused, nothing was changed:\n${problems.map(p => `- ${p}`).join('\n')}`);
+		}
+
+		await applyStaged(s, {after, ...(exec && {exec})});
+		pmLog().info('align finished', {modules: items.length});
 	});
 }
 
@@ -506,6 +647,16 @@ export async function list(): Promise<ModuleStatus[]> {
 }
 
 export type LockInfo = {source: string; version: string; commit?: string; account?: string};
+
+export async function locksByOrigin(): Promise<{image: Record<string, LockInfo>; overlay?: Record<string, LockInfo>}> {
+	const image = (await readLock(imageLockPath)).modules;
+	return overlayDir === undefined ? {image} : {image, overlay: (await readLock(installLockPath)).modules};
+}
+
+export async function imageVersionOf(name: string): Promise<string | undefined> {
+	if (overlayDir === undefined) return undefined;
+	return (await readManifest(path.join(modulesDir, name)).catch(() => undefined))?.version;
+}
 
 export async function lockEntries(): Promise<Record<string, LockInfo>> {
 	return {...(await imageLock()).modules, ...(await readLock(installLockPath)).modules};

@@ -194,18 +194,81 @@ export type Logger = {
 
 export type StartupAlert = {text: string; detail?: string};
 
+export type BuildInfo = {
+	version: string;
+	modules: {name: string; version: string; credentials?: Record<string, CredentialAccess>}[];
+	root?: {mode: 'image' | 'dev'; path: string; workCopy?: string};
+};
+
+export type ModuleExportRules = {deny: string[]};
+
+export type ModuleLockInfo = {source: string; version: string; commit?: string; account?: string};
+
+export type ModuleInfo = {
+	name: string;
+	version: string;
+	origin: 'image' | 'overlay';
+	export?: ModuleExportRules;
+	lock?: ModuleLockInfo;
+	host?: string;
+	code: {carry: false} | {carry: true; reason: string};
+};
+
+export type ModuleDataFile = {path: string; mode: number; mtimeMs: number; data: Uint8Array};
+
+export type ModuleDataLimits = {maxFiles: number; maxFileBytes: number; maxTotalBytes: number};
+
+export type ModuleDataRead = {files: ModuleDataFile[]; skipped: number; notes: string[]; defaultDeny: boolean};
+
+export type ModuleDataReplace = {name: string; files: readonly ModuleDataFile[]};
+
+export type ModuleDataReplaced = {name: string; written: number; removed: number; kept: number; skipped: number; defaultDeny: boolean};
+
+export type ModuleTarget = {
+	name: string;
+	version: string;
+	source?: string;
+	commit?: string;
+	account?: string;
+	host?: string;
+	code?: readonly ModuleDataFile[];
+};
+
+export type ImportAction = 'install' | 'update' | 'downgrade' | 'unchanged';
+
+export type ImportStep = {
+	name: string;
+	action: ImportAction;
+	from?: string;
+	to: string;
+	fromCommit?: string;
+	toCommit?: string;
+	source?: string;
+	fromFile?: boolean;
+};
+
+export type ImportPlan = {hostVersion: string; steps: ImportStep[]; untouched: string[]; problems: string[]};
+
+export type ImportRequest = {targets: readonly ModuleTarget[]; data: readonly ModuleDataReplace[]; backupDir: string};
+
+export type ImportResult = {plan: ImportPlan; replaced: ModuleDataReplaced[]};
+
+export type ModuleRegistry = {
+	list(): Promise<ModuleInfo[]>;
+	readData(name: string, limits: ModuleDataLimits): Promise<ModuleDataRead>;
+	readCode(name: string, limits: ModuleDataLimits): Promise<ModuleDataRead>;
+	planImport(targets: readonly ModuleTarget[]): Promise<ImportPlan>;
+	applyImport(request: ImportRequest, log: (line: string) => void): Promise<ImportResult>;
+};
+
 export type Yena = {
 	commands: Command[];
 	dataDir: string;
 	events: EventBus;
 	log: Logger;
 	alerts?: StartupAlert[];
-};
-
-export type BuildInfo = {
-	version: string;
-	modules: {name: string; version: string; credentials?: Record<string, CredentialAccess>}[];
-	root?: {mode: 'image' | 'dev'; path: string; workCopy?: string};
+	modules?: ModuleRegistry;
+	build?: BuildInfo;
 };
 
 export type GitSshResolver = (account: string) => Promise<string>;

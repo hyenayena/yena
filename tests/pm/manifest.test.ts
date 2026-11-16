@@ -75,3 +75,23 @@ test('an unknown field, a non-boolean optional and a self-dependency are rejecte
 	await assert.rejects(readManifest(await manifestWith({dependencies: {chat: {source: 'chat', version: '^1.0.0', optional: 'yes'}}})), /dependency "chat": "optional" must be true or false/);
 	await assert.rejects(readManifest(await manifestWith({dependencies: {m: {source: 'm', version: '^1.0.0'}}})), /"m" cannot depend on itself/);
 });
+
+test('export is absent by default and keeps a valid deny list', async () => {
+	assert.equal((await readManifest(await manifestWith({}))).export, undefined);
+	assert.deepEqual((await readManifest(await manifestWith({export: {deny: []}}))).export, {deny: []});
+	assert.deepEqual((await readManifest(await manifestWith({export: {deny: ['state.json', 'cache/**']}}))).export, {deny: ['state.json', 'cache/**']});
+});
+
+test('an invalid export field fails the manifest', async () => {
+	for (const bad of [[], 'all', {deny: 'x'}, {deny: ['/abs']}, {deny: ['a/../b']}, {deny: [''], extra: 1}, {allow: []}]) {
+		await assert.rejects(readManifest(await manifestWith({export: bad})), /yena\.json: /);
+	}
+});
+
+test('host is an optional version range', async () => {
+	assert.equal((await readManifest(await manifestWith({}))).host, undefined);
+	assert.equal((await readManifest(await manifestWith({host: '^0.9.0'}))).host, '^0.9.0');
+	for (const bad of [3, '>=0.9', '^1', '']) {
+		await assert.rejects(readManifest(await manifestWith({host: bad})), /"host" must be a version range/);
+	}
+});
