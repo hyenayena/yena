@@ -7,13 +7,18 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.5.7",
-			"commit": "488a3c51444a7e6a38779530160c50efe1480c14"
+			"version": "0.6.0",
+			"commit": "a0abb1fcafc2314f9bed60e245602c035dbb6192"
+		},
+		"clan": {
+			"source": "clan",
+			"version": "0.1.0",
+			"commit": "56018ab6635417b088c6c11cc7a4463329e58e34"
 		},
 		"claude": {
 			"source": "claude",
-			"version": "0.34.6",
-			"commit": "fdb82da136d1caa3ba1c08574f49313edb6d6731"
+			"version": "0.35.0",
+			"commit": "d776b0e270c2de6998dad6e142fa5d8589d14039"
 		},
 		"core": {
 			"source": "core",
