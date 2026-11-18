@@ -7,8 +7,8 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.6.5",
-			"commit": "83149cb9dd22fa18372481fe2aac9a8ce1483cd8"
+			"version": "0.6.6",
+			"commit": "5dd8ea47801bfd17788ed59d0e7462699d12c587"
 		},
 		"clan": {
 			"source": "clan",
@@ -22,8 +22,8 @@
 		},
 		"core": {
 			"source": "core",
-			"version": "0.23.1",
-			"commit": "859bada6a67792cd1f3f61e2d7042c1c205550b4"
+			"version": "0.23.2",
+			"commit": "93f616258ad3ff8adbd05a4353f9b6d14372adec"
 		},
 		"dev": {
 			"source": "dev",
