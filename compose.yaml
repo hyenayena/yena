@@ -26,9 +26,13 @@ services:
       - /root:mode=0700
     command: ["sleep", "infinity"]
     init: true
+    # The web module's server (module pages): published on the host's loopback only, never on all interfaces. No access control yet (SEC-15).
+    ports:
+      - "127.0.0.1:${YENA_WEB_PORT:-7300}:${YENA_WEB_PORT:-7300}"
     environment:
       - TERM=xterm-256color
       - YENA_DATA=/data
+      - YENA_WEB_PORT=${YENA_WEB_PORT:-7300}
       - ANTHROPIC_API_KEY
       - CLAUDE_CODE_OAUTH_TOKEN
 

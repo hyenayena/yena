@@ -7,8 +7,8 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.7.1",
-			"commit": "b85721129cca877760f6be0ed76c8d29963f52a6"
+			"version": "0.7.2",
+			"commit": "4dbb8e255bf7bdcbbca45559cbdde255b48f5f6f"
 		},
 		"clan": {
 			"source": "clan",
@@ -35,6 +35,11 @@
 			"version": "0.4.3",
 			"commit": "841b3e471b2bde28cd8746998354031bd55ab5a5"
 		},
+		"interact": {
+			"source": "interact",
+			"version": "0.1.0",
+			"commit": "47c85e9d98e52a197ce47444cf57fe1c4fa0c6f1"
+		},
 		"md": {
 			"source": "md",
 			"version": "0.1.1",
@@ -54,6 +59,11 @@
 			"source": "task",
 			"version": "0.10.4",
 			"commit": "319b73820841897b342b274cd5c9c458b4169a87"
+		},
+		"web": {
+			"source": "web",
+			"version": "0.1.0",
+			"commit": "4ec767efae5ba326c65e6f8589082bd7ffd77cc7"
 		}
 	}
 }
