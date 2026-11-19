@@ -7,13 +7,13 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.7.0",
-			"commit": "f385333c680ec5f5c717111ee418c869db98de16"
+			"version": "0.7.1",
+			"commit": "b85721129cca877760f6be0ed76c8d29963f52a6"
 		},
 		"clan": {
 			"source": "clan",
-			"version": "0.1.1",
-			"commit": "cbc3688494599f93600bbbbf7c647b6ed9fd4e3a"
+			"version": "0.1.2",
+			"commit": "660edc9efbbe61e3acaed2fcdd6ac6af8c8c2554"
 		},
 		"claude": {
 			"source": "claude",
