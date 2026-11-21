@@ -269,6 +269,7 @@ export type Yena = {
 	alerts?: StartupAlert[];
 	modules?: ModuleRegistry;
 	build?: BuildInfo;
+	reload?: () => void;
 };
 
 export type GitSshResolver = (account: string) => Promise<string>;

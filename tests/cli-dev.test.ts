@@ -105,6 +105,38 @@ test('a crash after ready is a crash: no fallback, the child status is kept', as
 	assert.ok(!existsSync(path.join(s.data, 'host', 'dev-failure.json')));
 });
 
+const RELOAD_ENTRY = `export default (yena) => { console.log(typeof yena.reload + ' ' + process.env.YENA_RELAUNCH); yena.reload?.(); };`;
+
+test('reload under the relauncher: the dev child ends with status 75 and no failure record', async () => {
+	const s = await setup({entry: RELOAD_ENTRY});
+	const r = run(s, [], {YENA_RELAUNCH: '1'});
+	assert.equal(r.status, 75, r.stderr);
+	assert.equal(r.stdout, 'function undefined\n');
+	assert.ok(!existsSync(path.join(s.data, 'host', 'dev-failure.json')));
+});
+
+test('without the relauncher flag there is no reload', async () => {
+	const s = await setup({entry: RELOAD_ENTRY});
+	const r = run(s, []);
+	assert.equal(r.status, 0, r.stderr);
+	assert.equal(r.stdout, 'undefined undefined\n');
+});
+
+test('the image entry reloads under the relauncher too', async () => {
+	const s = await setup({});
+	await core(path.join(s.home, 'modules', 'core'), {headless: IMAGE_HEADLESS, entry: RELOAD_ENTRY});
+	const r = run(s, [], {YENA_RELAUNCH: '1', YENA_STABLE: '1'});
+	assert.equal(r.status, 75, r.stderr);
+	assert.equal(r.stdout, 'function undefined\n');
+});
+
+test('a headless run never gets reload', async () => {
+	const s = await setup({headless: `export default async (yena) => { console.log(typeof yena.reload); };`});
+	const r = run(s, ['--run', '--', 'x'], {YENA_RELAUNCH: '1'});
+	assert.equal(r.status, 0, r.stderr);
+	assert.equal(r.stdout, 'undefined\n');
+});
+
 test('a signal to the launcher before ready stops the run: no fallback, no record', async () => {
 	const s = await setup({headless: DEV_HEADLESS});
 	const slow = path.join(s.devRoot, 'modules', 'slow');
@@ -162,4 +194,21 @@ test('after a fallback the image core gets the alert and plugins can read the re
 	assert.equal(lines[0], 'record dev core broke false');
 	const alerts = JSON.parse(lines[1]!.slice('alerts '.length)) as {text: string; detail: string}[];
 	assert.deepEqual(alerts, [{text: `Dev mode: ${s.devRoot} failed to start, running the image. Run fix to repair it.`, detail: 'dev core broke'}]);
+});
+
+for (const value of ['true', '', '0']) {
+	test(`YENA_RELAUNCH=${JSON.stringify(value)} gives no reload and the key is gone`, async () => {
+		const s = await setup({entry: RELOAD_ENTRY});
+		const r = run(s, [], {YENA_RELAUNCH: value});
+		assert.equal(r.status, 0, r.stderr);
+		assert.equal(r.stdout, 'undefined undefined\n');
+	});
+}
+
+test('a process the app starts after startup does not see the relaunch flag', async () => {
+	const s = await setup({entry: `import {spawnSync} from 'node:child_process';
+export default (yena) => { console.log(typeof yena.reload + ' ' + spawnSync(process.execPath, ['-e', 'console.log(String(process.env.YENA_RELAUNCH))'], {encoding: 'utf8'}).stdout.trim()); };`});
+	const r = run(s, [], {YENA_RELAUNCH: '1'});
+	assert.equal(r.status, 0, r.stderr);
+	assert.equal(r.stdout, 'function undefined\n');
 });

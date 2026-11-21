@@ -18,6 +18,7 @@ import {createModuleRegistry} from './pm/registry.js';
 import {resolveInside} from './pm/paths.js';
 import {loadPlugins} from './pm/plugins.js';
 import {loadableModules} from './pm/versions.js';
+import {createReload, RELAUNCH_ENV, takeRelaunch} from './reload.js';
 
 const CORE = 'core';
 
@@ -111,6 +112,8 @@ installProcessHooks(logger);
 
 if (process.env.YENA_DATA) process.env.YENA_HOST_STATE = stateDir;
 
+const relaunch = takeRelaunch(process.env);
+
 const devChild = isDevChild(process.env) && process.send !== undefined;
 let ready = false;
 async function markReady() {
@@ -124,7 +127,7 @@ const alerts: StartupAlert[] = [];
 const devRoot = devLaunchTarget(process.env, root, await readMode(stateDir));
 if (devRoot !== undefined) {
 	logger.info('dev start', {devRoot});
-	const outcome = await runDevChild({devRoot, args: argv, env: process.env, stateDir});
+	const outcome = await runDevChild({devRoot, args: argv, env: relaunch ? {...process.env, [RELAUNCH_ENV]: '1'} : process.env, stateDir});
 	if (outcome.kind === 'done') {
 		logger.info('dev run ended', {code: outcome.code});
 		process.exit(outcome.code);
@@ -184,6 +187,7 @@ async function main() {
 		modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules')}),
 		build,
 		...(alerts.length > 0 && {alerts}),
+		...(relaunch && {reload: createReload({log: logger})}),
 	});
 	await markReady();
 }

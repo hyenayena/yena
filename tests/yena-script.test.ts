@@ -11,6 +11,7 @@ const script = fileURLToPath(new URL('../yena', import.meta.url));
 const END = '--end--';
 const STATUS_ENV = ['-e', 'YENA_STATUS_DIR=/tmp/yena-status'];
 const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-i', 'yena'];
+const RELAUNCH_PREFIX = [...EXEC_PREFIX.slice(0, -2), '-e', 'YENA_RELAUNCH=1', '-i', 'yena'];
 const WORK_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
 const WORK = new Set(['install', 'typecheck', 'test', 'compile']);
 const PS = ['ps', '-q', '--filter', 'name=^yena$'];
@@ -30,6 +31,15 @@ case " $* " in *" --catalog "*)
 esac
 if [ "$1" = ps ] && [ -n "\${STUB_PS-}" ]; then printf '%s\\n' "$STUB_PS"; fi
 case " $* " in *" npm "*) if [ -n "\${STUB_CLIP-}" ]; then printf '%s' "$STUB_CLIP" > .yena/.clipboard/.part; mv .yena/.clipboard/.part .yena/.clipboard/1.txt; sleep 1; fi ;; esac
+if [ -n "\${STUB_EXITS_FILE-}" ]; then
+	for a in "$@"; do
+		if [ "$a" = "\${STUB_FAIL_ON-}" ]; then
+			code=$(head -n 1 "$STUB_EXITS_FILE")
+			sed -i.bak 1d "$STUB_EXITS_FILE"
+			exit "\${code:-0}"
+		fi
+	done
+fi
 if [ -n "\${STUB_EXIT-}" ]; then
 	for a in "$@"; do
 		if [ "$a" = "\${STUB_FAIL_ON-}" ]; then exit "$STUB_EXIT"; fi
@@ -90,6 +100,7 @@ function runAs(fx: Fixture, file: string, argv: string[], cwd: string, extra: Re
 	delete env.YENA_COMPLETION;
 	delete env.STUB_EXIT;
 	delete env.STUB_FAIL_ON;
+	delete env.STUB_EXITS_FILE;
 	delete env.STUB_CATALOG_FAIL;
 	delete env.STUB_CATALOG_SLEEP;
 	env.STUB_CATALOG = DEFAULT_CATALOG;
@@ -130,7 +141,7 @@ test('no arguments with a running container: one exec of npm run dev from the sc
 	const r = run(fx, []);
 	assert.equal(r.status, 0, r.stderr);
 	const all = await calls(fx);
-	assert.deepEqual(untrack(all.map(c => c.args)), [PS, [...EXEC_PREFIX, 'npm', 'run', 'dev'], STOP]);
+	assert.deepEqual(untrack(all.map(c => c.args)), [PS, [...RELAUNCH_PREFIX, 'npm', 'run', 'dev'], STOP]);
 	for (const c of all) assert.equal(c.cwd, fx.dir);
 	assert.ok(!all.some(c => c.args.includes('-t')));
 });
@@ -139,7 +150,7 @@ test('a stopped container is started before the exec', async () => {
 	const fx = await makeFixture();
 	const r = run(fx, [], {STUB_PS: ''});
 	assert.equal(r.status, 0, r.stderr);
-	assert.deepEqual(untrack(await argsOf(fx)), [PS, UP, [...EXEC_PREFIX, 'npm', 'run', 'dev'], STOP]);
+	assert.deepEqual(untrack(await argsOf(fx)), [PS, UP, [...RELAUNCH_PREFIX, 'npm', 'run', 'dev'], STOP]);
 });
 
 const COMPOSE: [string, string[]][] = [
@@ -178,9 +189,87 @@ for (const [cmd, expected] of EXEC) {
 		const fx = await makeFixture();
 		const r = run(fx, [cmd]);
 		assert.equal(r.status, 0, r.stderr);
-		assert.deepEqual(untrack(await argsOf(fx)), [PS, [...(WORK.has(cmd) ? WORK_PREFIX : EXEC_PREFIX), ...expected], ...(TRACKED.has(cmd) ? [STOP] : [])]);
+		assert.deepEqual(untrack(await argsOf(fx)), [PS, [...(WORK.has(cmd) ? WORK_PREFIX : cmd === 'yena' || cmd === 'start' ? RELAUNCH_PREFIX : EXEC_PREFIX), ...expected], ...(TRACKED.has(cmd) ? [STOP] : [])]);
 	});
 }
+
+async function exitsFile(fx: Fixture, codes: number[]) {
+	const file = path.join(fx.bin, 'exits');
+	await writeFile(file, codes.map(String).join('\n') + '\n');
+	return file;
+}
+
+test('status 75 from yena runs the app again with the same mark; the hint and exit status come from the last run', async () => {
+	const fx = await makeFixture();
+	const r = run(fx, ['yena'], {STUB_EXITS_FILE: await exitsFile(fx, [75, 0]), STUB_FAIL_ON: 'dev'});
+	assert.equal(r.status, 0, r.stderr);
+	assert.equal(r.stderr, 'Reloading yena...\n');
+	const all = (await argsOf(fx)).filter(a => a.includes('sh') && a.includes('-c') && a.some(x => /echo \$\$/.test(x)));
+	assert.equal(all.length, 2);
+	assert.deepEqual(all[0], all[1]);
+	assert.deepEqual(untrack(all), [[...RELAUNCH_PREFIX, 'npm', 'run', 'dev'], [...RELAUNCH_PREFIX, 'npm', 'run', 'dev']]);
+});
+
+test('75 then a failure ends the loop with the debug hint and that status', async () => {
+	const fx = await makeFixture();
+	const r = run(fx, ['start'], {STUB_EXITS_FILE: await exitsFile(fx, [75, 1]), STUB_FAIL_ON: 'start'});
+	assert.equal(r.status, 1);
+	assert.match(r.stderr, /Reloading yena\.\.\.\n/);
+	assert.match(r.stderr, /The app exited with status 1\. Debug: YENA_LOG_LEVEL=debug \.\/yena/);
+	const execs = (await argsOf(fx)).filter(a => a.includes('npm'));
+	assert.equal(execs.length, 2);
+});
+
+test('other statuses never relaunch, and 75 from sh or a console line is kept', async () => {
+	const fx = await makeFixture();
+	const crash = run(fx, ['yena'], {STUB_EXITS_FILE: await exitsFile(fx, [2, 0]), STUB_FAIL_ON: 'dev'});
+	assert.equal(crash.status, 2);
+	assert.doesNotMatch(crash.stderr, /Reloading/);
+	for (const [args, failOn] of [[['sh'], 'sh'], [['mod', 'list'], 'mod']] as const) {
+		const one = await makeFixture();
+		const r = run(one, [...args], {STUB_EXITS_FILE: await exitsFile(one, [75, 0]), STUB_FAIL_ON: failOn});
+		assert.equal(r.status, 75, args.join(' '));
+		assert.doesNotMatch(r.stderr, /Reloading/);
+		assert.ok(!(await argsOf(one)).some(a => a.includes('YENA_RELAUNCH=1')));
+	}
+});
+
+const SHELLS: [string, string[]][] = [['sh', []], ['busybox sh', ['/bin/busybox', 'sh']], ['bash --posix', ['/bin/bash', '--posix']]];
+
+for (const [name, shell] of SHELLS) {
+	test(`${name}: 75 three times relaunches each time with the same mark; a clipboard watcher is started once`, {skip: shell.length > 0 && !existsSync(shell[0]!) && `${shell[0]} is not installed`}, async () => {
+		const fx = await makeFixture();
+		const clipLog = path.join(fx.bin, 'clip.log');
+		await writeFile(path.join(fx.bin, 'pbcopy'), `#!/bin/sh\ncat >> '${clipLog}'\n`);
+		await chmod(path.join(fx.bin, 'pbcopy'), 0o755);
+		const extra = {YENA_CLIPBOARD: '', STUB_EXITS_FILE: await exitsFile(fx, [75, 75, 75, 0]), STUB_FAIL_ON: 'dev', STUB_CLIP: 'x'};
+		const r = shell.length === 0 ? run(fx, ['yena'], extra) : runAs(fx, shell[0]!, [...shell.slice(1), path.join(fx.dir, 'yena'), 'yena'], fx.elsewhere, extra);
+		assert.equal(r.status, 0, r.stderr);
+		assert.equal(r.stderr, 'Reloading yena...\n'.repeat(3), r.stderr);
+		const execs = (await argsOf(fx)).filter(a => a.includes('npm'));
+		assert.equal(execs.length, 4);
+		for (const e of execs) assert.deepEqual(e, execs[0]);
+		assert.ok(execs[0]!.includes('YENA_RELAUNCH=1') && execs[0]!.includes('YENA_CLIPBOARD_DIR=/data/.clipboard'));
+		assert.equal(await readFile(clipLog, 'utf8'), 'xxxx');
+	});
+}
+
+test('status 143 (./yena kill) and 130 end the loop without a relaunch', async () => {
+	for (const code of [143, 130, 74, 76]) {
+		const fx = await makeFixture();
+		const r = run(fx, ['yena'], {STUB_EXITS_FILE: await exitsFile(fx, [code, 0]), STUB_FAIL_ON: 'dev'});
+		assert.equal(r.status, code);
+		assert.doesNotMatch(r.stderr, /Reloading/);
+		assert.equal((await argsOf(fx)).filter(a => a.includes('npm')).length, 1);
+	}
+});
+
+test('help describes reload for restart, yena and start', async () => {
+	const fx = await makeFixture();
+	const r = run(fx, ['help']);
+	assert.match(r.stdout, /reload in the app restarts only the app/);
+	assert.match(r.stdout, /reload in it starts it again/);
+});
 
 test('a tracked command stops its marked process group with the same mark it started with', async () => {
 	const fx = await makeFixture();
