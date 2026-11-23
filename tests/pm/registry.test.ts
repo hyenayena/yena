@@ -4,10 +4,11 @@ import {mkdir, mkdtemp, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {test} from 'node:test';
-import type {Logger, ModuleDataFile, ModuleLockInfo} from '../../src/api.js';
+import type {Logger, ModuleDataFile, ModuleLockInfo, RulesProvider} from '../../src/api.js';
 import {parseManifest} from '../../src/pm/manifest.js';
 import type {AlignItem, ResolvedModule} from '../../src/pm/manager.js';
 import {createModuleRegistry, sourceRefusal} from '../../src/pm/registry.js';
+import {legacyProvider} from '../fixtures/legacy-export.js';
 
 const C1 = 'a'.repeat(40);
 const C2 = 'b'.repeat(40);
@@ -29,6 +30,7 @@ type Setup = {
 	imageVersions?: Record<string, string>;
 	hostVersion?: string;
 	dataRoot?: string;
+	provider?: RulesProvider | null;
 };
 
 function registry(setup: Setup = {}) {
@@ -44,6 +46,7 @@ function registry(setup: Setup = {}) {
 		dataRoot: setup.dataRoot ?? '/nonexistent-data',
 		hostVersion: setup.hostVersion ?? '0.9.0',
 		log: noopLog,
+		rules: () => (setup.provider === null ? undefined : (setup.provider ?? legacyProvider)),
 	});
 	return {reg, calls};
 }
@@ -64,10 +67,10 @@ test('list takes the lock by origin, the overlay falling back to the image', asy
 	assert.equal(infos[0]!.lock?.commit, C2);
 	assert.equal(infos[1]!.lock?.commit, C1);
 	assert.equal(infos[2]!.lock?.commit, C1);
-	assert.deepEqual(infos[0]!.export, {deny: []});
+	assert.equal(infos[0]!.exportList, true);
 	assert.equal(infos[1]!.host, '^0.9.0');
 	assert.deepEqual(infos[2]!.code, {carry: false});
-	assert.equal(infos[2]!.export, undefined);
+	assert.equal(infos[2]!.exportList, undefined);
 });
 
 async function codeOf(lock: ModuleLockInfo | undefined, version = '1.0.0') {
@@ -126,6 +129,41 @@ test('readData uses the manifest rules of the installed module', async () => {
 	const {reg} = registry({modules: [a, b], dataRoot: root});
 	assert.deepEqual((await reg.readData('a', limits)).files.map(f => f.path), ['ok.json']);
 	assert.equal((await reg.readData('b', limits)).defaultDeny, true);
+});
+
+test('readData and readCode fail closed without a rules provider', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'yena-reg-data-'));
+	await mkdir(path.join(root, 'a'));
+	await writeFile(path.join(root, 'a', 'ok.json'), '{}');
+	const a = await mkModule('a', '1.0.0', {export: {deny: []}});
+	const {reg} = registry({modules: [a], dataRoot: root, provider: null, image: pinned('a', '1.0.0')});
+	const read = await reg.readData('a', limits);
+	assert.deepEqual(read.files, []);
+	assert.equal(read.defaultDeny, true);
+	assert.deepEqual(read.notes, ['the rules module is not installed, so no module data was exported']);
+	assert.equal((await reg.list())[0]!.exportList, undefined);
+	const carried = registry({modules: [a], dataRoot: root, provider: null}).reg;
+	await assert.rejects(carried.readCode('a', limits), /rules module is not installed/);
+});
+
+test('the provider decides the data filter and the import filter per item', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'yena-reg-data-'));
+	await mkdir(path.join(root, 'a'));
+	await writeFile(path.join(root, 'a', 'ok.json'), '{}');
+	await writeFile(path.join(root, 'a', 'secret'), 's');
+	const seen: {name: string; part: string; dataDir: string; legacy: unknown}[] = [];
+	const provider: RulesProvider = {
+		exportFilter: async (target, part) => {
+			seen.push({name: target.name, part, dataDir: target.dataDir, legacy: target.legacyExport});
+			return {denied: async rel => rel === 'secret', note: 'a note'};
+		},
+	};
+	const a = await mkModule('a', '1.0.0', {export: {deny: ['x']}});
+	const {reg} = registry({modules: [a], dataRoot: root, provider});
+	const read = await reg.readData('a', limits);
+	assert.deepEqual(read.files.map(f => f.path), ['ok.json']);
+	assert.deepEqual(read.notes, ['a note']);
+	assert.deepEqual(seen[0], {name: 'a', part: 'data', dataDir: path.join(root, 'a'), legacy: {deny: ['x']}});
 });
 
 test('sourceRefusal allows remotes and refuses the rest', () => {

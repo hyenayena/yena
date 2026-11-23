@@ -8,6 +8,7 @@ import {createEventBus} from '../../src/events.js';
 import type {Manifest} from '../../src/pm/manifest.js';
 import {loadPlugins} from '../../src/pm/plugins.js';
 import {createCredentialBroker} from '../../src/credentials.js';
+import {createRulesSlot} from '../../src/rules-provider.js';
 
 type Spec = {name: string; source?: string; runtime?: string; entry?: string | null; credentials?: Record<string, string>};
 
@@ -276,4 +277,39 @@ test('without a broker plugins get no credentials fields', async () => {
 	const host = (commands[0] as unknown as {host: PluginHost}).host;
 	assert.equal('credentials' in host, false);
 	assert.equal('registerCredentialProvider' in host, false);
+});
+
+test('only the module named rules gets registerRulesProvider, and its provider fills the slot', async () => {
+	const {base, modules} = await setup([
+		{name: 'rules', source: probeHost('rules-cmd')},
+		{name: 'other', source: probeHost('other-cmd')},
+	]);
+	const slot = createRulesSlot();
+	const layout = {modules: [{name: 'a', codeDir: '/c', dataDir: '/d'}]};
+	const {commands} = await load(modules, base, {rules: {slot, layout: async () => layout}});
+	const hostOf = (name: string) => (commands.find(c => c.name === name) as unknown as {host: PluginHost}).host;
+	assert.equal('registerRulesProvider' in hostOf('other-cmd'), false);
+	const provider = {exportFilter: async () => undefined};
+	const access = hostOf('rules-cmd').registerRulesProvider?.(provider);
+	assert.equal(slot.current(), provider);
+	assert.deepEqual(await access?.layout(), layout);
+});
+
+test('without a rules option no plugin gets registerRulesProvider', async () => {
+	const {base, modules} = await setup([{name: 'rules', source: probeHost('rules-cmd')}]);
+	const {commands} = await load(modules, base);
+	assert.equal('registerRulesProvider' in (commands[0] as unknown as {host: PluginHost}).host, false);
+});
+
+test('a second registration from the rules module is ignored and logged', async () => {
+	const {base, modules} = await setup([{name: 'rules', source: probeHost('rules-cmd')}]);
+	const {logger, recs} = spyLogger();
+	const slot = createRulesSlot();
+	const {commands} = await load(modules, base, {logger, rules: {slot, layout: async () => ({modules: []})}});
+	const host = (commands[0] as unknown as {host: PluginHost}).host;
+	const first = {exportFilter: async () => undefined};
+	host.registerRulesProvider?.(first);
+	host.registerRulesProvider?.({exportFilter: async () => undefined});
+	assert.equal(slot.current(), first);
+	assert.deepEqual(recs.find(r => r.msg === 'rules provider ignored')?.fields, {module: 'rules'});
 });

@@ -1,7 +1,20 @@
 import {pathToFileURL} from 'node:url';
-import type {BuildInfo, Command, CredentialProvider, DevFailure, EventBus, GitSshResolver, Logger, ModulePlugin} from '../api.js';
+import type {
+	BuildInfo,
+	Command,
+	CredentialProvider,
+	DevFailure,
+	EventBus,
+	GitSshResolver,
+	Logger,
+	ModulePlugin,
+	RulesHostAccess,
+	RulesLayout,
+	RulesProvider,
+} from '../api.js';
 import type {CredentialBroker} from '../credentials.js';
 import {noopLogger} from '../log/index.js';
+import {RULES_MODULE, type RulesSlot} from '../rules-provider.js';
 import {registerGitSsh} from './git-ssh.js';
 import type {Manifest} from './manifest.js';
 import {resolveInside} from './paths.js';
@@ -16,6 +29,7 @@ export type LoadPluginsOptions = {
 	build?: BuildInfo;
 	devFailure?: () => Promise<DevFailure | undefined>;
 	credentials?: CredentialBroker;
+	rules?: {slot: RulesSlot; layout: () => Promise<RulesLayout>};
 	importer?: (url: string) => Promise<unknown>;
 	timeoutMs?: number;
 };
@@ -65,6 +79,7 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 			const mod = (await importer(pathToFileURL(file).href)) as {default?: ModulePlugin};
 			if (typeof mod.default !== 'function') throw new Error(`${manifest.entry} must export a default function`);
 			const plugin = mod.default;
+			const rules = opts.rules;
 			const host = {
 				dataDir: await opts.dataDirFor(manifest.name),
 				events: opts.events,
@@ -80,6 +95,13 @@ export async function loadPlugins(opts: LoadPluginsOptions): Promise<Command[]> 
 						if (!broker.register(provider, manifest.name)) logger.warn('credential provider ignored', {module: manifest.name});
 					},
 				}),
+				...(rules &&
+					manifest.name === RULES_MODULE && {
+						registerRulesProvider: (provider: RulesProvider): RulesHostAccess => {
+							if (!rules.slot.register(provider, manifest.name)) logger.warn('rules provider ignored', {module: manifest.name});
+							return {layout: rules.layout};
+						},
+					}),
 			};
 			const commands = validate(await withTimeout(Promise.resolve().then(() => plugin(host)), timeoutMs));
 			for (const c of commands) {

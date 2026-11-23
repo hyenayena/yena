@@ -1,8 +1,8 @@
 import {constants} from 'node:fs';
 import {copyFile, lstat, mkdir, open, readdir, rename, rmdir, unlink, utimes} from 'node:fs/promises';
 import path from 'node:path';
-import type {Logger, ModuleDataFile, ModuleDataLimits, ModuleDataRead, ModuleDataReplace, ModuleDataReplaced, ModuleExportRules} from '../api.js';
-import {hasControlChars, isDenied} from './export-rules.js';
+import type {ExportFilter, Logger, ModuleDataFile, ModuleDataLimits, ModuleDataRead, ModuleDataReplace, ModuleDataReplaced} from '../api.js';
+import {hasControlChars} from './export-rules.js';
 import {MODULE_NAME, RESERVED_NAMES} from './manifest.js';
 
 export const MAX_PATH_BYTES = 240;
@@ -65,7 +65,7 @@ const byPath = (a: {path: string}, b: {path: string}) => (a.path < b.path ? -1 :
 export async function readModuleData(
 	root: string,
 	name: string,
-	rules: ModuleExportRules | undefined,
+	filter: ExportFilter | undefined,
 	limits: ModuleDataLimits,
 	log?: Logger,
 ): Promise<ModuleDataRead> {
@@ -76,12 +76,13 @@ export async function readModuleData(
 	const counts = {skipped: 0, big: 0, links: 0, odd: 0, unreadable: 0};
 	let total = 0;
 
-	if (rules === undefined) {
+	if (filter === undefined) {
 		const count = await countFiles(base);
 		log?.info('module data read', {module: name, files: 0, skipped: count, bytes: 0, ms: Date.now() - started});
 		return {files: [], skipped: count, notes: [], defaultDeny: true};
 	}
 
+	const rules = filter;
 	const tooLarge = () =>
 		new Error(`${name}'s data is larger than the export limit (${limits.maxFiles} files, ${sizeText(limits.maxTotalBytes)})`);
 
@@ -95,12 +96,12 @@ export async function readModuleData(
 				continue;
 			}
 			if (entry.isDirectory()) {
-				if (isDenied(rules, relPath)) counts.skipped += await countFiles(abs);
+				if (await rules.denied(relPath, true)) counts.skipped += await countFiles(abs);
 				else if (pathProblem(relPath)) counts.odd += await countFiles(abs);
 				else await walk(abs, relPath);
 				continue;
 			}
-			if (isDenied(rules, relPath)) {
+			if (await rules.denied(relPath, false)) {
 				counts.skipped++;
 				continue;
 			}
@@ -126,6 +127,7 @@ export async function readModuleData(
 	await walk(base, '');
 
 	const notes: string[] = [];
+	if (filter.note !== undefined) notes.push(filter.note);
 	if (counts.big > 0) notes.push(`${counts.big} files over ${sizeText(limits.maxFileBytes)} skipped`);
 	if (counts.links > 0) notes.push(`${counts.links} links or special files skipped`);
 	if (counts.odd > 0) notes.push(`${counts.odd} files with unusable paths skipped`);
@@ -144,7 +146,7 @@ type Journal =
 
 export type ReplaceOptions = {
 	backupDir: string;
-	rulesFor: (name: string) => ModuleExportRules | undefined;
+	rulesFor: (name: string) => ExportFilter | undefined;
 	log?: Logger;
 	beforeWrite?: (name: string, rel: string) => void | Promise<void>;
 };
@@ -171,14 +173,14 @@ async function exists(p: string) {
 
 type Plan = {moves: string[]; dirs: {rel: string; mode: number}[]; kept: number};
 
-async function planTarget(dir: string, rel: string, rules: ModuleExportRules, plan: Plan) {
+async function planTarget(dir: string, rel: string, rules: ExportFilter, plan: Plan) {
 	const entries = await readdir(dir, {withFileTypes: true});
 	for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
 		const relPath = rel === '' ? entry.name : `${rel}/${entry.name}`;
 		const abs = path.join(dir, entry.name);
 		if (entry.isSymbolicLink()) {
 			plan.kept++;
-		} else if (isDenied(rules, relPath)) {
+		} else if (await rules.denied(relPath, entry.isDirectory())) {
 			plan.kept += entry.isDirectory() ? await countFiles(abs) : 1;
 		} else if (entry.isDirectory()) {
 			await planTarget(abs, relPath, rules, plan);
@@ -211,7 +213,7 @@ export async function replaceModuleData(root: string, items: readonly ModuleData
 		const itemRules = rules.get(item.name);
 		if (itemRules === undefined) continue;
 		const rel = path.relative(path.join(root, item.name), backupDir);
-		if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel) && !isDenied(itemRules, rel.split(path.sep).join('/'))) {
+		if (rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel) && !(await itemRules.denied(rel.split(path.sep).join('/'), true))) {
 			throw new Error(`The backup folder is inside the data of ${item.name}`);
 		}
 	}
@@ -263,7 +265,7 @@ export async function replaceModuleData(root: string, items: readonly ModuleData
 			let written = 0;
 			let skipped = 0;
 			for (const file of item.files) {
-				if (isDenied(itemRules, file.path)) {
+				if (await itemRules.denied(file.path, false)) {
 					skipped++;
 					continue;
 				}

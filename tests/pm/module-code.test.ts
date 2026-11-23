@@ -106,3 +106,18 @@ test('git checkout: tracked and untracked files, ignored files and node_modules 
 	assert.deepEqual(paths(read), ['.gitignore', 'tracked.ts', 'untracked.ts', 'yena.json']);
 	assert.deepEqual(read.notes, ['1 secret-like files not packed']);
 });
+
+test('filter: files the filter closes are not packed and counted, its note is kept', async () => {
+	const dir = await moduleDir();
+	await put(dir, 'src/a.ts', 'a');
+	await put(dir, 'private/x', 'LEAK');
+	const read = await readModuleCode(dir, limits, undefined, {denied: async rel => rel.startsWith('private/'), note: 'a note'});
+	assert.deepEqual(paths(read), ['src/a.ts', 'yena.json']);
+	assert.equal(read.skipped, 1);
+	assert.deepEqual(read.notes, ['a note', '1 files closed by its .yenarules not packed']);
+});
+
+test('filter: a filter that closes yena.json refuses the pack', async () => {
+	const dir = await moduleDir();
+	await assert.rejects(readModuleCode(dir, limits, undefined, {denied: async () => true}), /yena\.json would not be packed/);
+});

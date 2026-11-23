@@ -1,6 +1,7 @@
 import {stat} from 'node:fs/promises';
 import path from 'node:path';
 import type {
+	ExportFilter,
 	ImportPlan,
 	ImportRequest,
 	ImportResult,
@@ -9,13 +10,15 @@ import type {
 	ModuleDataLimits,
 	ModuleDataRead,
 	ModuleDataReplaced,
+	ModuleDirs,
 	ModuleInfo,
 	ModuleLockInfo,
 	ModuleRegistry,
 	ModuleTarget,
+	RulesProvider,
 } from '../api.js';
 import {hostLog} from '../log/index.js';
-import {alignPinned, dataDir, imageVersionOf, locksByOrigin, resolveModules, type AlignItem, type ResolvedModule} from './manager.js';
+import {alignPinned, dataDir, imageVersionOf, locksByOrigin, resolveModules, type AlignItem, type ResolvedModule, type StagedModules} from './manager.js';
 import {hasControlChars} from './export-rules.js';
 import type {Manifest} from './manifest.js';
 import {readModuleCode} from './module-code.js';
@@ -34,7 +37,10 @@ export type RegistryDeps = {
 	hostVersion: string;
 	log: Logger;
 	exec?: typeof run;
+	rules?: () => RulesProvider | undefined;
 };
+
+const NO_RULES_NOTE = 'the rules module is not installed, so no module data was exported';
 
 const COMMIT = /^[0-9a-f]{40}$/;
 const ACCOUNT = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -111,11 +117,12 @@ export function createModuleRegistry(overrides: Partial<RegistryDeps> = {}): Mod
 	async function infoOf(m: ResolvedModule, locks: Awaited<ReturnType<RegistryDeps['locksByOrigin']>>): Promise<ModuleInfo> {
 		const lock = lockFor(m, locks);
 		const reason = await carryReason(m.dir, m.manifest, lock);
+		const exportList = (await deps.rules?.()?.exportFilter(dirsOf(m.manifest.name, m.dir, m.manifest), 'data')) !== undefined;
 		return {
 			name: m.manifest.name,
 			version: m.manifest.version,
 			origin: m.origin,
-			...(m.manifest.export && {export: m.manifest.export}),
+			...(exportList && {exportList: true}),
 			...(lock && {lock: {...lock}}),
 			...(m.manifest.host !== undefined && {host: m.manifest.host}),
 			code: reason === undefined ? {carry: false} : {carry: true, reason},
@@ -135,16 +142,29 @@ export function createModuleRegistry(overrides: Partial<RegistryDeps> = {}): Mod
 		return infos.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 	}
 
+	const dirsOf = (name: string, dir: string, manifest: Manifest): ModuleDirs => ({
+		name,
+		codeDir: path.resolve(dir),
+		dataDir: path.join(deps.dataRoot, name),
+		...(manifest.export && {legacyExport: {deny: [...manifest.export.deny]}}),
+	});
+
 	async function readData(name: string, limits: ModuleDataLimits): Promise<ModuleDataRead> {
 		const m = await need(name);
-		return readModuleData(deps.dataRoot, name, m.manifest.export, limits, deps.log);
+		const provider = deps.rules?.();
+		const filter = await provider?.exportFilter(dirsOf(name, m.dir, m.manifest), 'data');
+		const read = await readModuleData(deps.dataRoot, name, filter, limits, deps.log);
+		return provider === undefined ? {...read, notes: [...read.notes, NO_RULES_NOTE]} : read;
 	}
 
 	async function readCode(name: string, limits: ModuleDataLimits): Promise<ModuleDataRead> {
 		const m = await need(name);
 		const info = await infoOf(m, await deps.locksByOrigin());
 		if (!info.code.carry) throw new Error(`Module "${name}" can be installed from its source; its code is not carried`);
-		return readModuleCode(m.dir, limits, deps.log);
+		const provider = deps.rules?.();
+		if (!provider) throw new Error(`The rules module is not installed, so the code of "${name}" was not exported`);
+		const filter = await provider.exportFilter(dirsOf(name, m.dir, m.manifest), 'code');
+		return readModuleCode(m.dir, limits, deps.log, filter);
 	}
 
 	async function planImport(targets: readonly ModuleTarget[]): Promise<ImportPlan> {
@@ -223,10 +243,16 @@ export function createModuleRegistry(overrides: Partial<RegistryDeps> = {}): Mod
 		}
 		const have = await installed();
 		let replaced: ModuleDataReplaced[] = [];
-		const replace = async (stagedRules?: Map<string, Manifest>) => {
+		const replace = async (staged?: StagedModules) => {
+			const provider = deps.rules?.();
+			const filters = new Map<string, ExportFilter | undefined>();
+			for (const item of request.data) {
+				const source = staged?.get(item.name) ?? (have.has(item.name) ? {manifest: have.get(item.name)!.manifest, dir: have.get(item.name)!.dir} : undefined);
+				filters.set(item.name, source && (await provider?.exportFilter(dirsOf(item.name, source.dir, source.manifest), 'data')));
+			}
 			replaced = await replaceModuleData(deps.dataRoot, request.data, {
 				backupDir: request.backupDir,
-				rulesFor: name => (stagedRules?.has(name) ? stagedRules.get(name)!.export : have.get(name)?.manifest.export),
+				rulesFor: name => filters.get(name),
 				log: deps.log,
 			});
 		};

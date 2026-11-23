@@ -222,7 +222,9 @@ export function refusalText(problems: readonly DependencyProblem[], versionOf: (
 
 const NPM_INSTALL = ['npm', 'install', '--prefix', '.', '--omit=dev', '--no-audit', '--no-fund'];
 
-type ApplyOptions = {after?: (staged: Map<string, Manifest>) => Promise<void>; exec?: typeof run};
+export type StagedModules = Map<string, {manifest: Manifest; dir: string}>;
+
+type ApplyOptions = {after?: (staged: StagedModules) => Promise<void>; exec?: typeof run};
 
 async function applyStaged(s: Session, {after, exec = run}: ApplyOptions = {}) {
 	const trace = pmLog();
@@ -284,7 +286,7 @@ async function applyStaged(s: Session, {after, exec = run}: ApplyOptions = {}) {
 				trace.info('install script finished', {module: st.name, ms: Date.now() - started});
 			}
 		}
-		await after?.(new Map(staged.map(st => [st.name, st.manifest])));
+		await after?.(new Map(staged.map(st => [st.name, {manifest: st.manifest, dir: path.join(installDir, st.name)}])));
 	} catch (error) {
 		trace.warn('rolling back', {modules: swapped.length, err: error});
 		const failed: string[] = [];
@@ -455,7 +457,7 @@ async function stageFiles(item: {name: string; version: string; files: readonly 
 export async function alignPinned(
 	items: readonly AlignItem[],
 	log: Log,
-	after: (staged: Map<string, Manifest>) => Promise<void>,
+	after: (staged: StagedModules) => Promise<void>,
 	{hostVersion, exec}: AlignOptions = {},
 ) {
 	pmLog().info('align started', {modules: items.length});

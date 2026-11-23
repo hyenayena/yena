@@ -6,6 +6,7 @@ import path from 'node:path';
 import {test} from 'node:test';
 import type {ModuleDataFile} from '../../src/api.js';
 import {pathProblem, readModuleData, replaceModuleData} from '../../src/pm/module-data.js';
+import {filterFor} from '../fixtures/legacy-export.js';
 
 const limits = {maxFiles: 100, maxFileBytes: 1024, maxTotalBytes: 10_000};
 const tmp = () => mkdtemp(path.join(tmpdir(), 'yena-data-'));
@@ -40,7 +41,7 @@ test('read: denied files and directories are skipped and counted', async () => {
 	await put(root, 'm/cache/a', 'x');
 	await put(root, 'm/cache/deep/b', 'y');
 	await put(root, 'm/sub/.hidden', 'h');
-	const read = await readModuleData(root, 'm', {deny: ['state.json', 'cache']}, limits);
+	const read = await readModuleData(root, 'm', filterFor({deny: ['state.json', 'cache']}), limits);
 	assert.deepEqual(names(read.files), ['keep.json', 'sub/.hidden']);
 	assert.equal(read.skipped, 3);
 	assert.equal(read.defaultDeny, false);
@@ -50,7 +51,7 @@ test('read: modes and mtimes are kept, files are sorted', async () => {
 	const root = await tmp();
 	await put(root, 'm/b', 'b', 0o600);
 	await put(root, 'm/a', 'a', 0o755);
-	const read = await readModuleData(root, 'm', {deny: []}, limits);
+	const read = await readModuleData(root, 'm', filterFor({deny: []}), limits);
 	assert.deepEqual(read.files.map(f => [f.path, f.mode]), [['a', 0o755], ['b', 0o600]]);
 	assert.equal(Buffer.from(read.files[0]!.data).toString(), 'a');
 	assert.ok(read.files[0]!.mtimeMs > 0);
@@ -64,7 +65,7 @@ test('read: links and special files are skipped and never followed', async () =>
 	await symlink(path.join(outside, 'secret'), path.join(root, 'm', 'link'));
 	await symlink(outside, path.join(root, 'm', 'dirlink'));
 	execFileSync('mkfifo', [path.join(root, 'm', 'pipe')]);
-	const read = await readModuleData(root, 'm', {deny: []}, limits);
+	const read = await readModuleData(root, 'm', filterFor({deny: []}), limits);
 	assert.deepEqual(names(read.files), ['real']);
 	assert.equal(read.skipped, 3);
 	assert.deepEqual(read.notes, ['3 links or special files skipped']);
@@ -74,7 +75,7 @@ test('read: a file over the per-file limit is skipped with a note', async () => 
 	const root = await tmp();
 	await put(root, 'm/small', 'x');
 	await put(root, 'm/big', 'x'.repeat(2000));
-	const read = await readModuleData(root, 'm', {deny: []}, limits);
+	const read = await readModuleData(root, 'm', filterFor({deny: []}), limits);
 	assert.deepEqual(names(read.files), ['small']);
 	assert.deepEqual(read.notes, ['1 files over 1024 bytes skipped']);
 });
@@ -84,7 +85,7 @@ test('read: paths that cannot be archived are skipped', async () => {
 	await put(root, 'm/ok', 'x');
 	await put(root, `m/${'n'.repeat(250)}`, 'x');
 	await put(root, 'm/back\\slash', 'x');
-	const read = await readModuleData(root, 'm', {deny: []}, limits);
+	const read = await readModuleData(root, 'm', filterFor({deny: []}), limits);
 	assert.deepEqual(names(read.files), ['ok']);
 	assert.deepEqual(read.notes, ['2 files with unusable paths skipped']);
 });
@@ -93,8 +94,8 @@ test('read: over the file count or total size throws', async () => {
 	const root = await tmp();
 	await put(root, 'm/a', 'x'.repeat(600));
 	await put(root, 'm/b', 'x'.repeat(600));
-	await assert.rejects(readModuleData(root, 'm', {deny: []}, {...limits, maxTotalBytes: 1000}), /m's data is larger than the export limit/);
-	await assert.rejects(readModuleData(root, 'm', {deny: []}, {...limits, maxFiles: 1}), /larger than the export limit/);
+	await assert.rejects(readModuleData(root, 'm', filterFor({deny: []}), {...limits, maxTotalBytes: 1000}), /m's data is larger than the export limit/);
+	await assert.rejects(readModuleData(root, 'm', filterFor({deny: []}), {...limits, maxFiles: 1}), /larger than the export limit/);
 });
 
 test('read: no rules means default deny with the file count', async () => {
@@ -107,9 +108,9 @@ test('read: no rules means default deny with the file count', async () => {
 
 test('read: a missing data directory is empty; host and bad names are refused', async () => {
 	const root = await tmp();
-	assert.deepEqual(await readModuleData(root, 'nothing', {deny: []}, limits), {files: [], skipped: 0, notes: [], defaultDeny: false});
-	await assert.rejects(readModuleData(root, 'host', {deny: []}, limits), /reserved/);
-	await assert.rejects(readModuleData(root, '../x', {deny: []}, limits), /Invalid module name/);
+	assert.deepEqual(await readModuleData(root, 'nothing', filterFor({deny: []}), limits), {files: [], skipped: 0, notes: [], defaultDeny: false});
+	await assert.rejects(readModuleData(root, 'host', filterFor({deny: []}), limits), /reserved/);
+	await assert.rejects(readModuleData(root, '../x', filterFor({deny: []}), limits), /Invalid module name/);
 });
 
 test('pathProblem rejects unsafe paths', () => {
@@ -131,7 +132,7 @@ async function setup() {
 	return {root, backupDir: path.join(backups, 'run1')};
 }
 
-const rulesFor = (name: string) => (name === 'a' ? {deny: ['keep.json', 'secret']} : name === 'b' ? {deny: []} : undefined);
+const rulesFor = (name: string) => (name === 'a' ? filterFor({deny: ['keep.json', 'secret']}) : name === 'b' ? filterFor({deny: []}) : undefined);
 
 test('replace: denied files and links stay, the rest is moved to the backup, the archive is written', async () => {
 	const {root, backupDir} = await setup();
@@ -232,4 +233,27 @@ test('replace: missing target directories are created', async () => {
 	const results = await replaceModuleData(root, [{name: 'b', files: [file('deep/er/f', 'F')]}], {backupDir, rulesFor});
 	assert.equal(results[0]!.written, 1);
 	assert.equal(await readFile(path.join(root, 'b', 'deep', 'er', 'f'), 'utf8'), 'F');
+});
+
+test('read: the filter note is added and directories are asked with isDir', async () => {
+	const root = await tmp();
+	await put(root, 'm/a', 'x');
+	await put(root, 'm/d/b', 'y');
+	const asked: string[] = [];
+	const read = await readModuleData(
+		root,
+		'm',
+		{
+			denied: async (rel, isDir) => {
+				asked.push(`${rel}${isDir ? '/' : ''}`);
+				return rel === 'd';
+			},
+			note: 'closed by rules',
+		},
+		limits,
+	);
+	assert.deepEqual(read.files.map(f => f.path), ['a']);
+	assert.deepEqual(read.notes, ['closed by rules']);
+	assert.equal(read.skipped, 1);
+	assert.deepEqual(asked, ['a', 'd/']);
 });

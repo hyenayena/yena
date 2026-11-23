@@ -11,7 +11,8 @@ import {terminalText} from './log/sanitize.js';
 import {readMode, runningMode} from './mode.js';
 import {createModeCommand} from './mode-command.js';
 import {modCommand} from './pm/command.js';
-import {install, moduleDataDir, RefusedInstall, modulesDir, overlayDir, resolveModules, root, stateDir, type ResolvedModule} from './pm/manager.js';
+import {rulesLayout, createRulesSlot} from './rules-provider.js';
+import {install, dataDir, moduleDataDir, RefusedInstall, modulesDir, overlayDir, resolveModules, root, stateDir, type ResolvedModule} from './pm/manager.js';
 import type {Manifest} from './pm/manifest.js';
 import {registerModuleHooks} from './pm/module-hooks.js';
 import {createModuleRegistry} from './pm/registry.js';
@@ -106,6 +107,11 @@ async function buildInfo(modules: {manifest: Manifest}[]): Promise<BuildInfo> {
 
 const logger = createHostLogger({root: stateDir, env: process.env});
 const credentials = createCredentialBroker();
+const rulesSlot = createRulesSlot();
+const rulesAccess = (build: BuildInfo) => ({
+	slot: rulesSlot,
+	layout: async () => rulesLayout((await resolveModules()).modules, build.root?.path, dataDir),
+});
 const hostCommands = [modCommand, await createModeCommand({stateDir, codeRoot: root, writable: process.env.YENA_DATA !== undefined})];
 setHostLog(logger);
 installProcessHooks(logger);
@@ -177,6 +183,7 @@ async function main() {
 		build,
 		devFailure: () => publicDevFailure(stateDir),
 		credentials,
+		rules: rulesAccess(build),
 	});
 	logger.info('core loaded', {module: manifest.name, version: manifest.version});
 	await mod.default({
@@ -184,7 +191,7 @@ async function main() {
 		dataDir: await moduleDataDir(manifest.name),
 		events,
 		log: logger.child('core'),
-		modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules')}),
+		modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules'), rules: rulesSlot.current}),
 		build,
 		...(alerts.length > 0 && {alerts}),
 		...(relaunch && {reload: createReload({log: logger})}),
@@ -212,6 +219,7 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 		build,
 		devFailure: () => publicDevFailure(stateDir),
 		credentials,
+		rules: rulesAccess(build),
 	});
 	const started = Date.now();
 	let status = 'ok';
@@ -223,7 +231,7 @@ async function runHeadless(dir: string, manifest: Manifest, modules: ResolvedMod
 				dataDir: await moduleDataDir(manifest.name),
 				events,
 				log: logger.child('core'),
-				modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules')}),
+				modules: createModuleRegistry({hostVersion: build.version, log: logger.child('modules'), rules: rulesSlot.current}),
 				build,
 			},
 			catalogMode ? {args: [], catalog: true} : {args: runArgs},

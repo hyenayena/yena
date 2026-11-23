@@ -9,6 +9,7 @@ import type {AlignItem, ResolvedModule} from '../../src/pm/manager.js';
 import {readModuleCode} from '../../src/pm/module-code.js';
 import {replaceModuleData} from '../../src/pm/module-data.js';
 import {createModuleRegistry} from '../../src/pm/registry.js';
+import {filterFor, legacyProvider} from '../fixtures/legacy-export.js';
 
 const C1 = 'a'.repeat(40);
 const limits = {maxFiles: 100, maxFileBytes: 4096, maxTotalBytes: 100_000};
@@ -61,6 +62,7 @@ function registry(modules: ResolvedModule[], dataRoot: string, imageVersions: Re
 		dataRoot,
 		hostVersion: '0.9.0',
 		log: noopLog,
+		rules: () => legacyProvider,
 	});
 }
 
@@ -147,7 +149,7 @@ test('round trip: a write that fails midway restores files, modes, mtimes, folde
 	await assert.rejects(
 		replaceModuleData(root, [{name: 'md', files: [f('n1'), f('d/n2'), f('d/e/n3'), f('n4')]}], {
 			backupDir,
-			rulesFor: () => RULES,
+			rulesFor: () => filterFor(RULES),
 			beforeWrite: () => {
 				if (++writes === 3) throw new Error('disk full');
 			},

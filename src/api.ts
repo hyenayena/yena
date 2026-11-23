@@ -202,13 +202,23 @@ export type BuildInfo = {
 
 export type ModuleExportRules = {deny: string[]};
 
+export type ModuleDirs = {name: string; codeDir: string; dataDir: string; legacyExport?: ModuleExportRules};
+
+export type RulesLayout = {root?: string; modules: ModuleDirs[]};
+
+export type ExportFilter = {denied(rel: string, isDir: boolean): Promise<boolean>; note?: string};
+
+export type RulesProvider = {exportFilter(target: ModuleDirs, part: 'data' | 'code'): Promise<ExportFilter | undefined>};
+
+export type RulesHostAccess = {layout(): Promise<RulesLayout>};
+
 export type ModuleLockInfo = {source: string; version: string; commit?: string; account?: string};
 
 export type ModuleInfo = {
 	name: string;
 	version: string;
 	origin: 'image' | 'overlay';
-	export?: ModuleExportRules;
+	exportList?: boolean;
 	lock?: ModuleLockInfo;
 	host?: string;
 	code: {carry: false} | {carry: true; reason: string};
@@ -327,6 +337,7 @@ export type PluginHost = {
 	registerGitSsh?: (resolve: GitSshResolver) => void;
 	credentials?: Credentials;
 	registerCredentialProvider?: (provider: CredentialProvider) => void;
+	registerRulesProvider?: (provider: RulesProvider) => RulesHostAccess;
 };
 
 export type ModulePlugin = (host: PluginHost) => Command[] | Promise<Command[]>;

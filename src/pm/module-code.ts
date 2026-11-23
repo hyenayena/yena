@@ -1,6 +1,6 @@
 import {readdir, stat} from 'node:fs/promises';
 import path from 'node:path';
-import type {Logger, ModuleDataFile, ModuleDataLimits, ModuleDataRead} from '../api.js';
+import type {ExportFilter, Logger, ModuleDataFile, ModuleDataLimits, ModuleDataRead} from '../api.js';
 import {MANIFEST_FILE} from './manifest.js';
 import {pathProblem, readRegularFile, sizeText} from './module-data.js';
 import {run} from './run.js';
@@ -25,7 +25,7 @@ async function exists(p: string) {
 	);
 }
 
-type Counts = {secret: number; ignored: number; links: number; big: number; odd: number; unreadable: number};
+type Counts = {secret: number; ignored: number; links: number; big: number; odd: number; unreadable: number; closed: number};
 
 async function countFiles(dir: string): Promise<number> {
 	const entries = await readdir(dir, {withFileTypes: true}).catch(() => []);
@@ -68,16 +68,20 @@ async function gitCandidates(dir: string, counts: Counts): Promise<string[]> {
 	return found;
 }
 
-export async function readModuleCode(dir: string, limits: ModuleDataLimits, log?: Logger): Promise<ModuleDataRead> {
+export async function readModuleCode(dir: string, limits: ModuleDataLimits, log?: Logger, filter?: ExportFilter): Promise<ModuleDataRead> {
 	const name = path.basename(dir);
 	const started = Date.now();
-	const counts: Counts = {secret: 0, ignored: 0, links: 0, big: 0, odd: 0, unreadable: 0};
+	const counts: Counts = {secret: 0, ignored: 0, links: 0, big: 0, odd: 0, unreadable: 0, closed: 0};
 	const git = await exists(path.join(dir, '.git'));
 	const candidates = git ? await gitCandidates(dir, counts) : await walkCandidates(dir, counts);
 
 	const files: ModuleDataFile[] = [];
 	let total = 0;
 	for (const rel of candidates.sort()) {
+		if (filter && (await filter.denied(rel, false))) {
+			counts.closed++;
+			continue;
+		}
 		if (pathProblem(rel)) {
 			counts.odd++;
 			continue;
@@ -96,6 +100,8 @@ export async function readModuleCode(dir: string, limits: ModuleDataLimits, log?
 	if (!files.some(f => f.path === MANIFEST_FILE)) throw new Error(`${name}: its ${MANIFEST_FILE} would not be packed`);
 
 	const notes: string[] = [];
+	if (filter?.note !== undefined) notes.push(filter.note);
+	if (counts.closed > 0) notes.push(`${counts.closed} files closed by its .yenarules not packed`);
 	if (counts.secret > 0) notes.push(`${counts.secret} secret-like files not packed`);
 	if (!git && counts.ignored > 0) notes.push(`${counts.ignored} ignored or dependency files not packed`);
 	if (counts.big > 0) notes.push(`${counts.big} files over ${sizeText(limits.maxFileBytes)} skipped`);
