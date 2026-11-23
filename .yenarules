@@ -35,3 +35,6 @@ credentials.json
 /src/credentials.ts
 /src/pm/run.ts
 /src/pm/git-ssh.ts
+/src/rules-provider.ts
+/src/pm/module-data.ts
+/src/pm/module-code.ts
