@@ -53,7 +53,7 @@
 		"rules": {
 			"source": "rules",
 			"version": "0.1.1",
-			"commit": "17b4b32c2e9f98c2d4078b930e12c9a9c7bd8e3d"
+			"commit": "b7340dc06da522abcae1ba355ebd43ee087a40eb"
 		},
 		"scheduler": {
 			"source": "scheduler",
