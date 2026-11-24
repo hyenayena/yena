@@ -8,7 +8,7 @@
 		"chat": {
 			"source": "chat",
 			"version": "0.7.6",
-			"commit": "2169d080409fac295d61d642189fc0c8f1c1721f"
+			"commit": "98a3b27b38f48a4a472f17a2abdc42258be6b656"
 		},
 		"clan": {
 			"source": "clan",
