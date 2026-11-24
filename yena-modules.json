@@ -2,68 +2,73 @@
 	"modules": {
 		"account": {
 			"source": "account",
-			"version": "0.8.4",
-			"commit": "db017d046497a1d720bbf395f9c4da827c92a3f4"
+			"version": "0.8.5",
+			"commit": "b5c026088ff21ed7f463f64b53ea56291e80754b"
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.7.4",
-			"commit": "541cb3824de6f2b751338769c26e3e6afb2a3934"
+			"version": "0.7.5",
+			"commit": "b254a92e7ec3fd336e718bbda22931566becbc6d"
 		},
 		"clan": {
 			"source": "clan",
-			"version": "0.1.2",
-			"commit": "660edc9efbbe61e3acaed2fcdd6ac6af8c8c2554"
+			"version": "0.1.3",
+			"commit": "09bff22210b51cff7189af3f7f65e2ec49713bd7"
 		},
 		"claude": {
 			"source": "claude",
-			"version": "0.37.0",
-			"commit": "f09b10b5c54f8b9ea3c15e075bc00d7c39834eac"
+			"version": "0.38.0",
+			"commit": "5904c2842c461909e562b1667fc9dc67bab0c69a"
 		},
 		"core": {
 			"source": "core",
-			"version": "0.23.5",
-			"commit": "70c086eb68c30d8ba7c11a363cbe704a741e59d3"
+			"version": "0.23.6",
+			"commit": "a7456ad696ef477c2bfe27c587a87d1a1a9e7d37"
 		},
 		"dev": {
 			"source": "dev",
-			"version": "0.7.3",
-			"commit": "0472da69463cb3563cc3cdf0c8d49f6c4e0255ed"
+			"version": "0.7.4",
+			"commit": "d2e27c315696d406c358e509fd6fd51032f23359"
 		},
 		"http": {
 			"source": "http",
-			"version": "0.4.4",
-			"commit": "c0a7651a9123237a2548646ca5fea075f0433e98"
+			"version": "0.4.5",
+			"commit": "37eed0c2d1f0cbe3f24cc16b6c3f2a202df8bc7c"
 		},
 		"interact": {
 			"source": "interact",
-			"version": "0.2.0",
-			"commit": "5d6133661053c4531ee3c73d4081f5a626bfdf5a"
+			"version": "0.2.1",
+			"commit": "ead26631ac0dc52f100b2774207676ef05c6cb8d"
 		},
 		"md": {
 			"source": "md",
-			"version": "0.1.1",
-			"commit": "59b80203e17a20cef58abb6ba5722ede2320b9bc"
+			"version": "0.1.2",
+			"commit": "42f6dd51102605cc62c574d9a8b66584a71c45c4"
 		},
 		"project": {
 			"source": "project",
-			"version": "0.4.6",
-			"commit": "36bd3f868c6403e27b39c6179ac82c20a445228a"
+			"version": "0.4.7",
+			"commit": "50a96c0b6249d355e52917771eea81f18264280b"
+		},
+		"rules": {
+			"source": "rules",
+			"version": "0.1.1",
+			"commit": "17b4b32c2e9f98c2d4078b930e12c9a9c7bd8e3d"
 		},
 		"scheduler": {
 			"source": "scheduler",
-			"version": "0.6.3",
-			"commit": "ea2ecb472ed054d739bac98670be53fba8cdd254"
+			"version": "0.6.4",
+			"commit": "e78399711b3a8b2a4fb06bd1fb9b5b39ca0ab9bf"
 		},
 		"task": {
 			"source": "task",
-			"version": "0.10.4",
-			"commit": "319b73820841897b342b274cd5c9c458b4169a87"
+			"version": "0.10.5",
+			"commit": "9085c20b19e8029c6ee38e119e0e446306337ff5"
 		},
 		"web": {
 			"source": "web",
-			"version": "0.1.1",
-			"commit": "7b00143c9c12a8089f61efe5553e60eec06ea46d"
+			"version": "0.1.2",
+			"commit": "b3c39c3a49155c4d8b6729b4fa3510a328680478"
 		}
 	}
 }
