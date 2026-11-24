@@ -22,8 +22,8 @@
 		},
 		"core": {
 			"source": "core",
-			"version": "0.23.7",
-			"commit": "1ea9c1522d267924e0836d86bc6f826b71c27661"
+			"version": "0.23.8",
+			"commit": "cd131389d4e6f5fb8ce76f83410629407d936c01"
 		},
 		"dev": {
 			"source": "dev",
