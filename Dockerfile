@@ -3,7 +3,7 @@ FROM node:24-alpine
 # chat's Bash in its sandbox (modules/claude src/chat/sandbox.ts); curl and GNU grep replace the BusyBox
 # applets, which lack downloads and grep -P / --include; python3 runs the chat's scripts and tools (packages go
 # into a venv under /tmp or a project: the image is read-only and Alpine's pip refuses system installs, PEP 668)
-RUN apk add --no-cache git openssh-client bash ripgrep bubblewrap socat curl grep python3 py3-pip
+RUN apk add --no-cache git openssh-client bash ripgrep bubblewrap socat curl grep python3 py3-pip tzdata
 # Python libraries for the chat's small dev scripts, installed from apk because pip cannot write to the system
 # Python (PEP 668); anything else still goes into a venv. jq and ruff are standalone binaries.
 RUN apk add --no-cache jq ruff py3-requests py3-yaml py3-rich py3-dateutil py3-jinja2 py3-tabulate py3-click \
