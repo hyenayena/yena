@@ -7,8 +7,8 @@
 		},
 		"chat": {
 			"source": "chat",
-			"version": "0.7.7",
-			"commit": "fb29f9b64cdb726af8bf67aff768bcc5981f0f37"
+			"version": "0.7.8",
+			"commit": "489a7a185a2557c563d231f05e2245eda826a378"
 		},
 		"clan": {
 			"source": "clan",
@@ -17,13 +17,13 @@
 		},
 		"claude": {
 			"source": "claude",
-			"version": "0.39.0",
-			"commit": "a7ffdf110b7a83e76e84ebf26c95d5252e5970ac"
+			"version": "0.40.0",
+			"commit": "8db8710f534159c9902e0637fa542ddeb6dff1b8"
 		},
 		"core": {
 			"source": "core",
-			"version": "0.23.9",
-			"commit": "a729e9c3a94253856559c08704f62fabf9bdb00f"
+			"version": "0.23.10",
+			"commit": "6e1ec6920f289123be2a03b3834f60d32fd03640"
 		},
 		"dev": {
 			"source": "dev",
@@ -57,8 +57,8 @@
 		},
 		"scheduler": {
 			"source": "scheduler",
-			"version": "0.6.4",
-			"commit": "e78399711b3a8b2a4fb06bd1fb9b5b39ca0ab9bf"
+			"version": "0.7.0",
+			"commit": "c3247c2e1aece1056157a4d260894ee327f99bdf"
 		},
 		"task": {
 			"source": "task",
