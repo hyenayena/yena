@@ -6,7 +6,8 @@ import type {BuildInfo, HeadlessMain, Logger, ModuleMain, StartupAlert} from './
 import {createCredentialBroker} from './credentials.js';
 import {clearDevFailure, devLaunchTarget, publicDevFailure, errorFailure, isDevChild, reportReady, resetTerminal, runDevChild, writeDevFailure} from './dev-launch.js';
 import {createEventBus} from './events.js';
-import {createHostLogger, installProcessHooks, setHostLog} from './log/index.js';
+import {createHostLogger, installProcessHooks, readLogSetting, setHostLog} from './log/index.js';
+import {createLogCommand, logLevelSetting} from './log-command.js';
 import {terminalText} from './log/sanitize.js';
 import {readMode, runningMode} from './mode.js';
 import {createModeCommand} from './mode-command.js';
@@ -105,14 +106,20 @@ async function buildInfo(modules: {manifest: Manifest}[]): Promise<BuildInfo> {
 	};
 }
 
-const logger = createHostLogger({root: stateDir, env: process.env});
+const logSetting = process.env.YENA_DATA ? await readLogSetting(stateDir) : undefined;
+const logger = createHostLogger({root: stateDir, env: process.env, setting: logSetting});
 const credentials = createCredentialBroker();
 const rulesSlot = createRulesSlot();
 const rulesAccess = (build: BuildInfo) => ({
 	slot: rulesSlot,
 	layout: async () => rulesLayout((await resolveModules()).modules, build.root?.path, dataDir),
 });
-const hostCommands = [modCommand, await createModeCommand({stateDir, codeRoot: root, writable: process.env.YENA_DATA !== undefined})];
+const logOptions = {logger, stateDir, writable: process.env.YENA_DATA !== undefined};
+const hostCommands = [
+	modCommand,
+	await createModeCommand({stateDir, codeRoot: root, writable: logOptions.writable, extraSettings: () => [logLevelSetting(logOptions)]}),
+	createLogCommand(logOptions),
+];
 setHostLog(logger);
 installProcessHooks(logger);
 

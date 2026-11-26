@@ -5,6 +5,8 @@ import path from 'node:path';
 import {test} from 'node:test';
 import type {CommandContext} from '../src/api.js';
 import {checkDevRoot, DEFAULT_DEV_ROOT, readMode, runningMode, writeMode} from '../src/mode.js';
+import {logLevelSetting} from '../src/log-command.js';
+import {createHostLogger} from '../src/log/index.js';
 import {createModeCommand} from '../src/mode-command.js';
 
 const temp = async (prefix: string) => realpath(await mkdtemp(path.join(tmpdir(), prefix)));
@@ -117,4 +119,27 @@ test('mode help goes to core through ctx.showHelp, or prints the usage without i
 test('an unknown subcommand is a usage error', async () => {
 	const cmd = await createModeCommand({stateDir: await temp('yena-mode-'), codeRoot: '/app', writable: true});
 	await assert.rejects(Promise.resolve(cmd.run(['nope'], ctx().ctx)), (error: Error & {kind?: string}) => error.kind === 'usage');
+});
+
+test('the Yena tab carries the extra settings after the mode row', async () => {
+	const state = await temp('yena-mode-');
+	const extra = {key: 'x', label: 'X', options: [{value: 'a', label: 'A'}], get: () => 'a', set: () => {}};
+	const cmd = await createModeCommand({stateDir: state, codeRoot: '/app', writable: true, extraSettings: () => [extra]});
+	assert.deepEqual(cmd.settings!.settings.map(s => s.key), ['mode', 'x']);
+});
+
+test('the Yena tab shows the log level row; env-fixed it is read-only and refuses set', async () => {
+	const state = await temp('yena-mode-');
+	for (const env of [{}, {YENA_LOG_LEVEL: 'debug'}]) {
+		const logger = createHostLogger({root: state, env, onWarn: () => {}});
+		const opts = {logger, stateDir: state, writable: true};
+		const cmd = await createModeCommand({stateDir: state, codeRoot: '/app', writable: true, extraSettings: () => [logLevelSetting(opts)]});
+		const row = cmd.settings!.settings.find(s => s.key === 'log-level')!;
+		assert.equal(row.label, 'Log level');
+		if (Object.keys(env).length === 0) assert.equal(row.readOnly, undefined);
+		else {
+			assert.ok(row.readOnly);
+			await assert.rejects(Promise.resolve().then(() => row.set('info')), /YENA_LOG_LEVEL/);
+		}
+	}
 });

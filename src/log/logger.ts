@@ -1,20 +1,25 @@
 import path from 'node:path';
-import type {LogFields, Logger} from '../api.js';
+import type {LogFields, Logger, LogThreshold} from '../api.js';
 import {escapes} from '../pm/paths.js';
-import {LEVELS, readLogConfig, type LogLevel} from './config.js';
+import {isThreshold, LEVELS, resolveLogLevel, type LogLevel, type LogLevelSource, type ResolvedLogLevel} from './config.js';
 import {noopLogger} from './noop.js';
 import {createRedactor, type Redactor} from './redact.js';
 import {cleanText, escapeLine, MESSAGE_CAP, serializeFields, type Scrub} from './sanitize.js';
-import {openSink, type SinkIo} from './sink.js';
+import {openSink, type Sink, type SinkIo} from './sink.js';
 
 export type HostLogger = Logger & {
 	close(): void;
 	readonly file: string;
+	level(): LogThreshold;
+	onLevel(listener: (level: LogThreshold) => void): () => void;
+	levelSource(): {source: LogLevelSource; variable?: 'YENA_LOG' | 'YENA_LOG_LEVEL'};
+	setLevel(level: LogThreshold): {ok: true} | {ok: false; code: string};
 };
 
 export type HostLoggerOptions = {
 	root: string;
 	env: NodeJS.ProcessEnv;
+	setting?: LogThreshold;
 	dir?: string;
 	now?: () => Date;
 	pid?: number;
@@ -27,7 +32,9 @@ export type HostLoggerOptions = {
 const MAX_RECORD_BYTES = 8 * 1024;
 const SCOPE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
-const disabled = (redactor: Redactor): HostLogger => {
+const MAX_LISTENERS = 64;
+
+const disabled = (redactor: Redactor, resolved: ResolvedLogLevel): HostLogger => {
 	const logger: HostLogger = {
 		...noopLogger,
 		child: () => logger,
@@ -35,6 +42,10 @@ const disabled = (redactor: Redactor): HostLogger => {
 		redact: text => redactor.apply(text),
 		close() {},
 		file: '',
+		level: () => resolved.level,
+		onLevel: () => () => {},
+		levelSource: () => ({source: resolved.source, ...(resolved.variable && {variable: resolved.variable})}),
+		setLevel: () => ({ok: false, code: 'EPERM'}),
 	};
 	return logger;
 };
@@ -49,19 +60,22 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 	};
 
 	const redactor = createRedactor();
-	const config = readLogConfig(opts.env);
+	const config = resolveLogLevel(opts.env, opts.setting);
 	for (const message of config.warnings) warn(message);
-	if (!config.enabled) return disabled(redactor);
 
 	const dir = path.resolve(opts.dir ?? path.join(opts.root, 'logs'));
 	if (escapes(path.resolve(opts.root), dir)) {
 		warn('Warning: cannot write the log file (EPERM); logging is disabled');
-		return disabled(redactor);
+		return disabled(redactor, config);
 	}
 
 	const now = opts.now ?? (() => new Date());
 	const pid = opts.pid ?? process.pid;
-	const threshold = LEVELS.indexOf(config.level);
+	let level: LogThreshold = config.level;
+	let source: LogLevelSource = config.source;
+	let variable = config.variable;
+	let threshold = level === 'off' ? -1 : LEVELS.indexOf(level);
+	const listeners = new Set<(level: LogThreshold) => void>();
 
 	const render = (level: LogLevel, scope: string, message: unknown, fields?: LogFields): string => {
 		const scrub: Scrub = {redact: redactor.apply, ctl: 0};
@@ -80,27 +94,39 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 		return line;
 	};
 
-	let sink;
-	try {
-		sink = openSink({
+	let sink: Sink | undefined;
+	const openNow = (): Sink =>
+		openSink({
 			dir,
 			maxBytes: opts.maxBytes ?? 4 * 1024 * 1024,
 			generations: opts.generations ?? 3,
 			io: opts.io,
 			dropNotice: n => render('warn', 'log', `log: ${n} records dropped`),
 		});
-	} catch (err) {
-		const code = (err as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
-		warn(`Warning: cannot write the log file (${code}); logging is disabled`);
-		return disabled(redactor);
+	const codeOf = (err: unknown) => (err as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
+
+	if (level !== 'off') {
+		try {
+			sink = openNow();
+		} catch (err) {
+			warn(`Warning: cannot write the log file (${codeOf(err)}); logging is disabled`);
+			return disabled(redactor, config);
+		}
 	}
-	const active = sink;
+
+	const subscribe = (listener: (level: LogThreshold) => void) => {
+		if (listeners.size >= MAX_LISTENERS) return () => {};
+		listeners.add(listener);
+		return () => {
+			listeners.delete(listener);
+		};
+	};
 
 	const make = (scope: string): Logger => {
-		const emit = (level: LogLevel) => (message: string, fields?: LogFields) => {
+		const emit = (at: LogLevel) => (message: string, fields?: LogFields) => {
 			try {
-				if (LEVELS.indexOf(level) > threshold) return;
-				active.write(render(level, scope || 'host', message, fields));
+				if (LEVELS.indexOf(at) > threshold) return;
+				sink?.write(render(at, scope || 'host', message, fields));
 			} catch {
 			}
 		};
@@ -120,8 +146,53 @@ export function createHostLogger(opts: HostLoggerOptions): HostLogger {
 				}
 			},
 			redact: text => redactor.apply(text),
+			level: () => level,
+			onLevel: subscribe,
 		};
 	};
 
-	return {...make(''), close: () => active.close(), file: active.file};
+	const noteChange = (from: LogThreshold, to: LogThreshold) => {
+		try {
+			sink?.write(render('info', 'log', 'level changed', {from, to}));
+		} catch {
+		}
+	};
+
+	const setLevel = (next: LogThreshold): {ok: true} | {ok: false; code: string} => {
+		if (!isThreshold(next)) return {ok: false, code: 'EINVAL'};
+		if (next === level) return {ok: true};
+		if (next !== 'off' && !sink) {
+			try {
+				sink = openNow();
+			} catch (err) {
+				return {ok: false, code: codeOf(err)};
+			}
+		}
+		const from = level;
+		if (next === 'off') noteChange(from, next);
+		level = next;
+		threshold = next === 'off' ? -1 : LEVELS.indexOf(next);
+		source = 'setting';
+		variable = undefined;
+		if (next !== 'off') noteChange(from, next);
+		for (const listener of [...listeners]) {
+			try {
+				listener(next);
+			} catch {
+			}
+		}
+		return {ok: true};
+	};
+
+	return {
+		...make(''),
+		close: () => sink?.close(),
+		get file() {
+			return sink?.file ?? '';
+		},
+		level: () => level,
+		onLevel: subscribe,
+		levelSource: () => ({source, ...(variable && {variable})}),
+		setLevel,
+	};
 }

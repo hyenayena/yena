@@ -9,10 +9,11 @@ import {fileURLToPath} from 'node:url';
 
 const script = fileURLToPath(new URL('../yena', import.meta.url));
 const END = '--end--';
+const PASS_VARS = ['YENA_LOG_LEVEL', 'YENA_LOG', 'YENA_STABLE', 'COLORTERM', 'NO_COLOR', 'YENA_COLOR'];
 const STATUS_ENV = ['-e', 'YENA_STATUS_DIR=/tmp/yena-status'];
-const EXEC_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-i', 'yena'];
+const EXEC_PREFIX = ['exec', ...STATUS_ENV, '-i', 'yena'];
 const RELAUNCH_PREFIX = [...EXEC_PREFIX.slice(0, -2), '-e', 'YENA_RELAUNCH=1', '-i', 'yena'];
-const WORK_PREFIX = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
+const WORK_PREFIX = ['exec', ...STATUS_ENV, '-w', '/workplace/yena', '-i', 'yena'];
 const WORK = new Set(['install', 'typecheck', 'test', 'compile']);
 const PS = ['ps', '-q', '--filter', 'name=^yena$'];
 const UP = ['compose', 'up', '-d'];
@@ -95,7 +96,7 @@ type Fixture = Awaited<ReturnType<typeof makeFixture>>;
 
 function runAs(fx: Fixture, file: string, argv: string[], cwd: string, extra: Record<string, string> = {}, pathVar?: string) {
 	const env: NodeJS.ProcessEnv = {...process.env, STUB_LOG: fx.log, STUB_PS: 'abc'};
-	delete env.NO_COLOR;
+	for (const v of PASS_VARS) delete env[v];
 	delete env.YENA_HINTS;
 	delete env.YENA_COMPLETION;
 	delete env.STUB_EXIT;
@@ -254,6 +255,19 @@ for (const [name, shell] of SHELLS) {
 	});
 }
 
+for (const [name, shell] of SHELLS) {
+	test(`${name}: only the variables that are set are passed with -e`, {skip: shell.length > 0 && !existsSync(shell[0]!) && `${shell[0]} is not installed`}, async () => {
+		const fx = await makeFixture();
+		const extra = {YENA_LOG_LEVEL: 'debug', NO_COLOR: ''};
+		const r = shell.length === 0 ? run(fx, ['sh'], extra) : runAs(fx, shell[0]!, [...shell.slice(1), path.join(fx.dir, 'yena'), 'sh'], fx.elsewhere, extra);
+		assert.equal(r.status, 0, r.stderr);
+		const exec = (await argsOf(fx))[1]!;
+		assert.deepEqual(exec.slice(0, 5), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'NO_COLOR']);
+		assert.equal(exec.filter(a => a === '-e' || PASS_VARS.includes(a)).length, 5, 'one -e per set variable plus the status directory');
+		for (const v of ['YENA_LOG', 'YENA_STABLE', 'COLORTERM', 'YENA_COLOR']) assert.ok(!exec.includes(v), v);
+	});
+}
+
 test('status 143 (./yena kill) and 130 end the loop without a relaunch', async () => {
 	for (const code of [143, 130, 74, 76]) {
 		const fx = await makeFixture();
@@ -289,7 +303,7 @@ test('yena hands text the app copies to the host clipboard and stops watching at
 	const r = run(fx, ['yena'], {YENA_CLIPBOARD: '', STUB_CLIP: 'copied text'});
 	assert.equal(r.status, 0, r.stderr);
 	const exec = (await argsOf(fx))[1]!;
-	assert.deepEqual(exec.slice(0, 17), ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
+	assert.deepEqual(exec.slice(0, 5), ['exec', ...STATUS_ENV, '-e', 'YENA_CLIPBOARD_DIR=/data/.clipboard']);
 	assert.equal(await readFile(clipLog, 'utf8'), 'copied text');
 	assert.equal(existsSync(path.join(fx.dir, '.yena', '.clipboard', '1.txt')), false, 'the file is deleted once copied');
 	const plain = await makeFixture();
@@ -541,7 +555,7 @@ test('the no-arguments refusal says which command takes arguments', async () => 
 test('help lists the environment variables without colour on a pipe', async () => {
 	const fx = await makeFixture();
 	const r = run(fx, ['help']);
-	for (const v of ['YENA_LOG_LEVEL', 'YENA_LOG=', 'YENA_CLIPBOARD=off', 'NO_COLOR', 'YENA_COLOR=', 'YENA_HINTS=off', 'npm run logs']) {
+	for (const v of ['YENA_LOG_LEVEL', 'YENA_LOG=', 'Log level: error, warn, info, debug or off', 'overrides the setting (log level)', 'YENA_CLIPBOARD=off', 'NO_COLOR', 'YENA_COLOR=', 'YENA_HINTS=off', 'npm run logs']) {
 		assert.ok(r.stdout.includes(v), v);
 	}
 	assert.ok(!r.stdout.includes(ESC));
@@ -649,7 +663,7 @@ test('help ends with the line that loads the completion while it is off in the s
 	assert.ok(!on.includes('completion)"'));
 });
 
-const stubEnv = (fx: Fixture, extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({...process.env, STUB_LOG: fx.log, STUB_PS: 'abc', STUB_CATALOG: DEFAULT_CATALOG, PATH: `${fx.bin}:${process.env.PATH ?? ''}`, ...extra});
+const stubEnv = (fx: Fixture, extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({...Object.fromEntries(Object.entries(process.env).filter(([k]) => !PASS_VARS.includes(k))), STUB_LOG: fx.log, STUB_PS: 'abc', STUB_CATALOG: DEFAULT_CATALOG, PATH: `${fx.bin}:${process.env.PATH ?? ''}`, ...extra});
 
 const hasShell = (name: string) => spawnSync('sh', ['-c', `command -v ${name}`]).status === 0;
 
@@ -675,7 +689,7 @@ test('zsh registers the completion for yena and ./yena', {skip: !hasShell('zsh')
 	assert.equal(r.stdout.trim(), '_yena _yena 18');
 });
 
-const CONSOLE_EXEC = ['exec', '-e', 'YENA_LOG_LEVEL', '-e', 'YENA_LOG', '-e', 'YENA_STABLE', '-e', 'COLORTERM', '-e', 'NO_COLOR', '-e', 'YENA_COLOR', ...STATUS_ENV];
+const CONSOLE_EXEC = ['exec', ...STATUS_ENV];
 const TSX = ['node_modules/.bin/tsx', 'src/cli.ts', '--run', '--'];
 const CATALOG_CALL = ['exec', '-e', 'YENA_LOG=off', 'yena', 'node_modules/.bin/tsx', 'src/cli.ts', '--catalog'];
 

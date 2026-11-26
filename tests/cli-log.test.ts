@@ -143,3 +143,20 @@ test('without YENA_DATA the log stays in the root', async () => {
 	assert.equal(r.status, 0, r.stderr);
 	assert.ok((await records(home, path.join(home, 'logs'))).some(x => x.msg === 'core ran'));
 });
+
+test('log.json sets the level; YENA_LOG_LEVEL overrides it', async () => {
+	const debugCore = `export default yena => { yena.log.debug('core debug'); };`;
+	const withSetting = async () => {
+		const home = await makeHome(debugCore);
+		await mkdir(path.join(home, 'data', 'host'), {recursive: true});
+		await writeFile(path.join(home, 'data', 'host', 'log.json'), '{"level":"debug"}');
+		return home;
+	};
+	const set = await withSetting();
+	assert.equal(runCli(set).status, 0);
+	assert.ok((await records(set)).some(x => x.msg === 'core debug'));
+
+	const overridden = await withSetting();
+	assert.equal(runCli(overridden, {YENA_LOG_LEVEL: 'info'}).status, 0);
+	assert.ok(!(await records(overridden)).some(x => x.msg === 'core debug'));
+});

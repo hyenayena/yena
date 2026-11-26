@@ -83,8 +83,8 @@ usage() {
 	while IFS='|' read -r name desc; do
 		printf '  %s%-22s%s %s\n' "$on" "$name" "$off" "$desc"
 	done <<'ENVS'
-YENA_LOG_LEVEL=<level>|Log level of the app: error, warn, info (default) or debug
-YENA_LOG=on/off|Write the log, .yena/host/logs/yena.log (on, the default) or not (off)
+YENA_LOG_LEVEL=<level>|Log level: error, warn, info, debug or off; overrides the setting (log level)
+YENA_LOG=off|Write no log; overrides the setting (log level)
 YENA_STABLE=1|Start the app from the image even in dev mode (mode dev)
 YENA_WORKPLACE=<dir>|Folder mounted as /workplace when the container is created (default: ..)
 YENA_CLIPBOARD=off|Do not copy text selected in the app to the host clipboard
@@ -330,14 +330,17 @@ ensure_up() {
 	fi
 }
 
+# docker exec -e NAME without a value unsets NAME in the container (wiping compose/.env values), so only variables set here are passed.
+PASS_ENV="${YENA_LOG_LEVEL+-e YENA_LOG_LEVEL} ${YENA_LOG+-e YENA_LOG} ${YENA_STABLE+-e YENA_STABLE} ${COLORTERM+-e COLORTERM} ${NO_COLOR+-e NO_COLOR} ${YENA_COLOR+-e YENA_COLOR}"
+
 # EXEC_DIR (set by install, typecheck, test, compile) runs the command in the working copy instead of /app.
 run_exec() {
 	tty=''
 	[ -t 0 ] && tty=-t
 	if [ -n "${EXEC_DIR:-}" ]; then
-		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e COLORTERM -e NO_COLOR -e YENA_COLOR -e "YENA_STATUS_DIR=$STATUS_DIR" -w "$EXEC_DIR" -i $tty yena "$@"
+		docker exec $PASS_ENV -e "YENA_STATUS_DIR=$STATUS_DIR" -w "$EXEC_DIR" -i $tty yena "$@"
 	else
-		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e COLORTERM -e NO_COLOR -e YENA_COLOR -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
+		docker exec $PASS_ENV -e "YENA_STATUS_DIR=$STATUS_DIR" -i $tty yena "$@"
 	fi
 }
 
@@ -439,7 +442,7 @@ run_tracked() {
 	# 75 is the app's reload status (src/reload.ts); only it loops, so a crash never restarts the app.
 	while :; do
 		status=0
-		docker exec -e YENA_LOG_LEVEL -e YENA_LOG -e YENA_STABLE -e COLORTERM -e NO_COLOR -e YENA_COLOR -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env $relaunch_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
+		docker exec $PASS_ENV -e "YENA_STATUS_DIR=$STATUS_DIR" $clip_env $relaunch_env -i $tty yena sh -c "$TRACK_RUN" "$mark" "$@" || status=$?
 		[ -n "${RELAUNCH:-}" ] && [ "$status" -eq 75 ] || break
 		printf '%s\n' 'Reloading yena...' >&2
 	done

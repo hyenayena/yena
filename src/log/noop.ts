@@ -13,4 +13,6 @@ export const noopLogger: Logger = {
 	},
 	addRedactor() {},
 	redact: text => builtins.apply(text),
+	level: () => 'off',
+	onLevel: () => () => {},
 };

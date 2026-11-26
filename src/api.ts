@@ -119,6 +119,7 @@ export type Setting = {
 	inline?: SettingInline;
 	get: () => string | undefined | Promise<string | undefined>;
 	set: (value: string) => void | Promise<void>;
+	readOnly?: string;
 };
 
 export type SettingAction = {
@@ -182,6 +183,10 @@ export type EventBus = {
 
 export type LogFields = Record<string, unknown>;
 
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
+
+export type LogThreshold = LogLevel | 'off';
+
 export type Logger = {
 	error(message: string, fields?: LogFields): void;
 	warn(message: string, fields?: LogFields): void;
@@ -190,6 +195,8 @@ export type Logger = {
 	child(scope: string): Logger;
 	addRedactor(redact: (text: string) => string): void;
 	redact?(text: string): string;
+	level?(): LogThreshold;
+	onLevel?(listener: (level: LogThreshold) => void): () => void;
 };
 
 export type StartupAlert = {text: string; detail?: string};

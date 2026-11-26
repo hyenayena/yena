@@ -1,4 +1,4 @@
-import type {Command, SettingsTab, Subcommand} from './api.js';
+import type {Command, Setting, SettingsTab, Subcommand} from './api.js';
 import {checkDevRoot, readMode, runningMode, writeMode, type ModeState, type RootMode} from './mode.js';
 import {usageError} from './usage-error.js';
 
@@ -6,6 +6,7 @@ export type ModeCommandOptions = {
 	stateDir: string;
 	codeRoot: string;
 	writable: boolean;
+	extraSettings?: () => Setting[];
 };
 
 const subcommands: Subcommand[] = [
@@ -50,6 +51,7 @@ export async function createModeCommand(opts: ModeCommandOptions): Promise<Comma
 				get: () => state.mode,
 				set: value => save(value === 'dev' ? 'dev' : 'image'),
 			},
+			...(opts.extraSettings?.() ?? []),
 		],
 	});
 
