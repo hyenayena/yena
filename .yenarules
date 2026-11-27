@@ -21,7 +21,6 @@ secrets/
 credentials.json
 
 [deny write]
-/yena
 /install.sh
 /compose.yaml
 /Dockerfile
@@ -31,6 +30,7 @@ credentials.json
 **/.git/hooks/
 
 [ask write]
+/yena
 **/.git/config
 /src/credentials.ts
 /src/pm/run.ts
